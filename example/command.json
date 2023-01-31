@@ -1,0 +1,64 @@
+{
+  "name": "zlap-example",
+  "desc": "An example for zlap library",
+
+  "args": [
+    {
+      "desc": "print this argument as a string",
+      "meta": "PRINT",
+      "type": "string",
+      "default": null
+    },
+    {
+      "desc": "print this argument as a number",
+      "meta": "FOO",
+      "type": "number",
+      "default": null
+    }
+  ],
+  "flags": [],
+
+  "subcmds": [
+    {
+      "name": "init",
+      "desc": "An init",
+      "args": [
+        {
+          "desc": "print this argument as a string",
+          "meta": "PRINT",
+          "type": "string",
+          "default": null
+        }
+      ],
+      "flags": [
+        {
+          "long": "conti",
+          "short": "c",
+          "desc": "Print this string (conti)",
+          "type": "bool",
+          "default": "false"
+        },
+        {
+          "long": "foo",
+          "short": null,
+          "desc": "Print this string (foo)",
+          "type": "strings",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "run",
+      "desc": "An run",
+      "args": [
+        {
+          "desc": "print this argument as a string",
+          "meta": "PRINT",
+          "type": "string",
+          "default": null
+        }
+      ],
+      "flags": []
+    }
+  ]
+}
