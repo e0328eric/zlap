@@ -16,7 +16,15 @@
       "default": null
     }
   ],
-  "flags": [],
+  "flags": [
+    {
+      "long": "conti",
+      "short": "c",
+      "desc": "Print this string (conti)",
+      "type": "bool",
+      "default": "false"
+    }
+  ],
 
   "subcmds": [
     {
@@ -40,7 +48,7 @@
         },
         {
           "long": "foo",
-          "short": null,
+          "short": "f",
           "desc": "Print this string (foo)",
           "type": "strings",
           "default": null
