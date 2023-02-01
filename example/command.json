@@ -42,7 +42,7 @@
         {
           "long": "conti",
           "short": "c",
-          "desc": "Print this string (conti)",
+          "desc": "Print this string (i)",
           "type": "bool",
           "default": "false"
         },

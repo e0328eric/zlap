@@ -1,10 +1,11 @@
 const std = @import("std");
 const ascii = std.ascii;
+const fmt = std.fmt;
+const io = std.io;
 const json = std.json;
 const mem = std.mem;
 const meta = std.meta;
 const process = std.process;
-const fmt = std.fmt;
 
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -105,6 +106,7 @@ const FlagName = union(enum) {
 };
 
 pub const Arg = struct {
+    meta: []const u8,
     desc: ?[]const u8,
     value: Value,
 
@@ -160,7 +162,9 @@ pub const Zlap = struct {
     main_args_idx: usize,
     main_flags: ArrayList(Flag),
     subcommands: StringHashMap(Subcmd),
+    active_subcmd_name: ?[]const u8,
     is_help_flag_actived: bool,
+    help_msg: []const u8,
 
     const Self = @This();
 
@@ -174,6 +178,7 @@ pub const Zlap = struct {
         zlap.program_name = zlap_json.name;
         zlap.program_desc = zlap_json.desc;
         zlap.main_args_idx = 0;
+        zlap.active_subcmd_name = null;
         zlap.is_help_flag_actived = false;
 
         zlap.main_args = try ArrayList(Arg).initCapacity(allocator, arguments_capacity);
@@ -208,6 +213,9 @@ pub const Zlap = struct {
         errdefer process.argsFree(allocator, raw_args);
         try zlap.parseCommandlineArguments();
 
+        zlap.help_msg = try zlap.makeHelpMessage();
+        errdefer zlap.freeHelpMessage(zlap.help_msg);
+
         return zlap;
     }
 
@@ -227,6 +235,7 @@ pub const Zlap = struct {
         self.main_args.deinit();
         self.main_flags.deinit();
         self.subcommands.deinit();
+        self.freeHelpMessage(self.help_msg);
 
         json.parseFree(ZlapJson, zlap_json, .{ .allocator = self.allocator });
         process.argsFree(self.allocator, raw_args);
@@ -239,6 +248,7 @@ pub const Zlap = struct {
 
             try self.main_args.append(
                 .{
+                    .meta = arg_json.meta,
                     .desc = arg_json.desc,
                     .value = value,
                 },
@@ -284,6 +294,7 @@ pub const Zlap = struct {
 
                 try args.append(
                     .{
+                        .meta = arg_json.meta,
                         .desc = arg_json.desc,
                         .value = value,
                     },
@@ -352,6 +363,7 @@ pub const Zlap = struct {
                 subcmd_name,
             );
 
+            self.active_subcmd_name = subcmd_name;
             const subcmd =
                 self.subcommands.getPtr(subcmd_name) orelse return error.InvalidSubcommand;
             idx.* += 1;
@@ -395,8 +407,6 @@ pub const Zlap = struct {
             } else {
                 return error.CannotFindFlag;
             }
-
-            try parseValue(false, idx, flag_ptr, null, null);
         } else {
             if (name.len == 0) return;
             for (self.main_flags.items) |*flag| {
@@ -407,9 +417,10 @@ pub const Zlap = struct {
             } else {
                 return error.CannotFindFlag;
             }
-
-            try parseValue(false, idx, flag_ptr, null, null);
         }
+
+        self.is_help_flag_actived = mem.eql(u8, flag_ptr.long.?, "help");
+        try parseValue(false, idx, flag_ptr, null, null);
     }
 
     fn parseShortFlag(
@@ -426,30 +437,28 @@ pub const Zlap = struct {
             for (subcmd.flags.items) |*flag| {
                 if (flag.short != null and flag.short.? == name[name_idx]) {
                     try flag_ptrs.append(flag);
+                    self.is_help_flag_actived = name[name_idx] == 'h';
                     name_idx += 1;
                 }
                 if (name_idx >= name.len) break;
             } else {
                 return error.CannotFindFlag;
-            }
-
-            for (flag_ptrs.items) |flag_ptr, i| {
-                try parseValue(true, idx, flag_ptr, flag_ptrs.items.len, i);
             }
         } else {
             for (self.main_flags.items) |*flag| {
                 if (flag.short != null and flag.short.? == name[name_idx]) {
                     try flag_ptrs.append(flag);
+                    self.is_help_flag_actived = name[name_idx] == 'h';
                     name_idx += 1;
                 }
                 if (name_idx >= name.len) break;
             } else {
                 return error.CannotFindFlag;
             }
+        }
 
-            for (flag_ptrs.items) |flag_ptr, i| {
-                try parseValue(true, idx, flag_ptr, flag_ptrs.items.len, i);
-            }
+        for (flag_ptrs.items) |flag_ptr, i| {
+            try parseValue(true, idx, flag_ptr, flag_ptrs.items.len, i);
         }
     }
 
@@ -514,6 +523,56 @@ pub const Zlap = struct {
                 idx.* -|= 1;
             },
         }
+    }
+
+    fn makeHelpMessage(self: Self) ZlapError![]const u8 {
+        var msg = try ArrayList(u8).initCapacity(self.allocator, 400);
+        errdefer msg.deinit();
+
+        var writer = msg.writer();
+        try writer.print("{s}\n\n", .{self.program_desc orelse ""});
+
+        var args: *const ArrayList(Arg) = undefined;
+        var flags: *const ArrayList(Flag) = undefined;
+
+        if (self.active_subcmd_name) |subcmd_name| {
+            const subcmd = self.subcommands.get(subcmd_name) orelse return error.InternalError;
+            try writer.print("Usage: {s} {s} [flags]", .{ self.program_name, subcmd_name });
+
+            args = &subcmd.args;
+            flags = &subcmd.flags;
+        } else {
+            try writer.print("Usage: {s} [flags]", .{self.program_name});
+
+            args = &self.main_args;
+            flags = &self.main_flags;
+        }
+
+        for (args.items) |arg| {
+            try writer.print(" {s}", .{arg.meta});
+        } else {
+            try writer.print("\n\n", .{});
+        }
+
+        try writer.print("Options:\n", .{});
+        var max_len_flag_name: usize = 0;
+        for (flags.items) |flag| {
+            max_len_flag_name = @max(max_len_flag_name, (flag.long orelse "").len);
+        }
+        for (flags.items) |flag| {
+            try writer.print("    -{?c}, --{?s}", .{ flag.short, flag.long });
+            var i = max_len_flag_name - (flag.long orelse "").len + 8;
+            while (i > 0) : (i -= 1) {
+                try writer.print(" ", .{});
+            }
+            try writer.print("{?s}\n", .{flag.desc});
+        }
+
+        return msg.toOwnedSlice();
+    }
+
+    fn freeHelpMessage(self: Self, msg: []const u8) void {
+        self.allocator.free(msg);
     }
 };
 
