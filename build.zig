@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.build.Builder) void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
+    const strip = b.option(bool, "strip", "Omit debug information") orelse false;
 
     const lib = b.addStaticLibrary("zlap", "src/zlap.zig");
     lib.setBuildMode(mode);
@@ -20,6 +21,7 @@ pub fn build(b: *std.build.Builder) void {
     };
 
     const example_exe = b.addExecutable("zlap-example", "example/main.zig");
+    example_exe.strip = strip;
     example_exe.setTarget(target);
     example_exe.setBuildMode(mode);
     example_exe.addPackage(zlap);

@@ -1,5 +1,4 @@
 const std = @import("std");
-const zlap = @import("zlap");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -8,8 +7,23 @@ pub fn main() !void {
 
     const command = @embedFile("./command.json");
 
-    var foo = try zlap.Zlap.init(allocator, command);
-    defer foo.deinit();
+    var zlap = try @import("zlap").Zlap.init(allocator, command);
+    defer zlap.deinit();
 
-    std.debug.print("{s}\n", .{foo.help_msg});
+    if (zlap.is_help) {
+        std.debug.print("{s}\n", .{zlap.help_msg});
+        return;
+    }
+
+    if (!zlap.isSubcmdActive("init")) {
+        std.debug.print("{s}\n", .{zlap.help_msg});
+        return;
+    }
+
+    const subcmd = zlap.subcommands.get("init").?;
+    const foo_flag = subcmd.flags.get("foo") orelse return;
+
+    for (foo_flag.value.strings.items) |string| {
+        std.debug.print("<{s}>\n", .{string});
+    }
 }

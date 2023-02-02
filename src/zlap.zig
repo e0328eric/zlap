@@ -41,7 +41,7 @@ const ArgJson = struct {
 };
 
 const FlagJson = struct {
-    long: ?[]const u8,
+    long: []const u8,
     short: ?[]const u8,
     desc: ?[]const u8,
     type: []const u8,
@@ -63,7 +63,7 @@ const ZlapJson = struct {
     subcmds: []const SubcmdJson,
 };
 
-pub const ZlapError = Allocator.Error || json.ParseError(ZlapJson) || error{
+pub const ZlapError = Allocator.Error || fmt.ParseIntError || error{
     ArgumentOverflowed,
     CannotFindFlag,
     CommandParseFailed,
@@ -73,6 +73,7 @@ pub const ZlapError = Allocator.Error || json.ParseError(ZlapJson) || error{
     InvalidSubcommand,
     InvalidTypeStringFound,
     InvalidValue,
+    ShortFlagNameAlreadyExists,
     ShortFlagNameIsTooLong,
     SubcommandConflicted,
 };
@@ -127,16 +128,20 @@ pub const Flag = struct {
 };
 
 pub const Subcmd = struct {
+    name: []const u8,
     desc: ?[]const u8,
     args: ArrayList(Arg),
     args_idx: usize,
-    flags: ArrayList(Flag),
+    flags: StringHashMap(Flag),
+    short_arg_map: [256][]const u8,
 
-    fn deinit(self: @This()) void {
+    fn deinit(self: *@This()) void {
         for (self.args.items) |arg| {
             arg.deinit();
         }
-        for (self.flags.items) |flag| {
+
+        var iter = self.flags.valueIterator();
+        while (iter.next()) |flag| {
             flag.deinit();
         }
 
@@ -160,15 +165,16 @@ pub const Zlap = struct {
     program_desc: ?[]const u8,
     main_args: ArrayList(Arg),
     main_args_idx: usize,
-    main_flags: ArrayList(Flag),
+    main_flags: StringHashMap(Flag),
+    short_arg_map: [256][]const u8,
     subcommands: StringHashMap(Subcmd),
     active_subcmd_name: ?[]const u8,
-    is_help_flag_actived: bool,
+    is_help: bool,
     help_msg: []const u8,
 
     const Self = @This();
 
-    pub fn init(allocator: Allocator, comptime command_json: []const u8) ZlapError!Self {
+    pub fn init(allocator: Allocator, comptime command_json: []const u8) !Self {
         var tok_stream = json.TokenStream.init(command_json);
         zlap_json = try json.parse(ZlapJson, &tok_stream, .{ .allocator = allocator });
         errdefer json.parseFree(ZlapJson, zlap_json, .{ .allocator = allocator });
@@ -178,8 +184,9 @@ pub const Zlap = struct {
         zlap.program_name = zlap_json.name;
         zlap.program_desc = zlap_json.desc;
         zlap.main_args_idx = 0;
+        zlap.short_arg_map = [_][]const u8{""} ** 256;
         zlap.active_subcmd_name = null;
-        zlap.is_help_flag_actived = false;
+        zlap.is_help = false;
 
         zlap.main_args = try ArrayList(Arg).initCapacity(allocator, arguments_capacity);
         errdefer {
@@ -188,13 +195,17 @@ pub const Zlap = struct {
             }
             zlap.main_args.deinit();
         }
-        zlap.main_flags = try ArrayList(Flag).initCapacity(allocator, flags_capacity);
+
+        zlap.main_flags = StringHashMap(Flag).init(allocator);
         errdefer {
-            for (zlap.main_flags.items) |flag| {
+            var iter = zlap.main_flags.valueIterator();
+            while (iter.next()) |flag| {
                 flag.deinit();
             }
             zlap.main_flags.deinit();
         }
+        try zlap.main_flags.ensureTotalCapacity(flags_capacity);
+
         zlap.subcommands = StringHashMap(Subcmd).init(allocator);
         errdefer {
             var iter = zlap.subcommands.valueIterator();
@@ -223,12 +234,14 @@ pub const Zlap = struct {
         for (self.main_args.items) |arg| {
             arg.deinit();
         }
-        for (self.main_flags.items) |flag| {
+
+        var flag_iter = self.main_flags.valueIterator();
+        while (flag_iter.next()) |flag| {
             flag.deinit();
         }
 
-        var iter = self.subcommands.valueIterator();
-        while (iter.next()) |subcmd| {
+        var subcmd_iter = self.subcommands.valueIterator();
+        while (subcmd_iter.next()) |subcmd| {
             subcmd.deinit();
         }
 
@@ -239,6 +252,13 @@ pub const Zlap = struct {
 
         json.parseFree(ZlapJson, zlap_json, .{ .allocator = self.allocator });
         process.argsFree(self.allocator, raw_args);
+    }
+
+    pub fn isSubcmdActive(self: *const Self, name: ?[]const u8) bool {
+        if (name == null and self.active_subcmd_name == null) return true;
+        if (self.active_subcmd_name == null) return false;
+
+        return mem.eql(u8, self.active_subcmd_name.?, name.?);
     }
 
     fn initFields(self: *Self) ZlapError!void {
@@ -255,7 +275,8 @@ pub const Zlap = struct {
             );
         }
 
-        try self.main_flags.append(
+        try self.main_flags.put(
+            "help",
             .{
                 .long = "help",
                 .short = 'h',
@@ -263,6 +284,8 @@ pub const Zlap = struct {
                 .value = .{ .bool = false },
             },
         );
+        self.short_arg_map[@intCast(usize, 'h')] = "help";
+
         for (zlap_json.flags) |flag_json| {
             const value = try makeValue(self.allocator, flag_json);
             errdefer value.deinit();
@@ -271,7 +294,8 @@ pub const Zlap = struct {
                 if (short.len > 1) return error.ShortFlagNameIsTooLong;
                 break :short short[0];
             } else null;
-            try self.main_flags.append(
+            try self.main_flags.put(
+                flag_json.long,
                 .{
                     .long = flag_json.long,
                     .short = short_name,
@@ -279,14 +303,33 @@ pub const Zlap = struct {
                     .value = value,
                 },
             );
+
+            if (short_name) |sn| {
+                const long_name_ptr = &self.short_arg_map[@intCast(usize, sn)];
+                if (long_name_ptr.*.len > 0) return error.ShortFlagNameAlreadyExists;
+                long_name_ptr.* = flag_json.long;
+            }
         }
         for (zlap_json.subcmds) |subcmd_json| {
             if (self.subcommands.get(subcmd_json.name) != null) return error.SubcommandConflicted;
 
             var args = try ArrayList(Arg).initCapacity(self.allocator, arguments_capacity);
-            errdefer args.deinit();
-            var flags = try ArrayList(Flag).initCapacity(self.allocator, flags_capacity);
-            errdefer flags.deinit();
+            errdefer {
+                for (args.items) |arg| {
+                    arg.deinit();
+                }
+                args.deinit();
+            }
+            var flags = StringHashMap(Flag).init(self.allocator);
+            errdefer {
+                var iter = flags.valueIterator();
+                while (iter.next()) |flag| {
+                    flag.deinit();
+                }
+                flags.deinit();
+            }
+            try flags.ensureTotalCapacity(flags_capacity);
+            var short_arg_map = [_][]const u8{""} ** 256;
 
             for (subcmd_json.args) |arg_json| {
                 const value = try makeValue(self.allocator, arg_json);
@@ -301,7 +344,8 @@ pub const Zlap = struct {
                 );
             }
 
-            try flags.append(
+            try flags.put(
+                "help",
                 .{
                     .long = "help",
                     .short = 'h',
@@ -309,6 +353,8 @@ pub const Zlap = struct {
                     .value = .{ .bool = false },
                 },
             );
+            short_arg_map[@intCast(usize, 'h')] = "help";
+
             for (subcmd_json.flags) |flag_json| {
                 const value = try makeValue(self.allocator, flag_json);
                 errdefer value.deinit();
@@ -317,7 +363,8 @@ pub const Zlap = struct {
                     if (short.len > 1) return error.ShortFlagNameIsTooLong;
                     break :short short[0];
                 } else null;
-                try flags.append(
+                try flags.put(
+                    flag_json.long,
                     .{
                         .long = flag_json.long,
                         .short = short_name,
@@ -325,13 +372,21 @@ pub const Zlap = struct {
                         .value = value,
                     },
                 );
+
+                if (short_name) |sn| {
+                    const long_name_ptr = &short_arg_map[@intCast(usize, sn)];
+                    if (long_name_ptr.*.len > 0) return error.ShortFlagNameAlreadyExists;
+                    long_name_ptr.* = flag_json.long;
+                }
             }
 
             try self.subcommands.put(subcmd_json.name, .{
+                .name = subcmd_json.name,
                 .desc = subcmd_json.desc,
                 .args = args,
                 .args_idx = 0,
                 .flags = flags,
+                .short_arg_map = short_arg_map,
             });
         }
     }
@@ -396,30 +451,15 @@ pub const Zlap = struct {
         idx: *usize,
         name: []const u8,
     ) ZlapError!void {
-        var flag_ptr: *Flag = undefined;
-
-        if (maybe_subcmd) |subcmd| {
-            for (subcmd.flags.items) |*flag| {
-                if (flag.long != null and mem.eql(u8, flag.long.?, name)) {
-                    flag_ptr = flag;
-                    break;
-                }
-            } else {
-                return error.CannotFindFlag;
-            }
-        } else {
+        var flag_ptr: *Flag =
+            if (maybe_subcmd) |subcmd|
+            subcmd.flags.getPtr(name) orelse return error.CannotFindFlag
+        else blk: {
             if (name.len == 0) return;
-            for (self.main_flags.items) |*flag| {
-                if (flag.long != null and mem.eql(u8, flag.long.?, name)) {
-                    flag_ptr = flag;
-                    break;
-                }
-            } else {
-                return error.CannotFindFlag;
-            }
-        }
+            break :blk self.main_flags.getPtr(name) orelse return error.CannotFindFlag;
+        };
 
-        self.is_help_flag_actived = mem.eql(u8, flag_ptr.long.?, "help");
+        self.is_help = self.is_help or mem.eql(u8, flag_ptr.long.?, "help");
         try parseValue(false, idx, flag_ptr, null, null);
     }
 
@@ -434,26 +474,20 @@ pub const Zlap = struct {
         defer flag_ptrs.deinit();
 
         if (maybe_subcmd) |subcmd| {
-            for (subcmd.flags.items) |*flag| {
-                if (flag.short != null and flag.short.? == name[name_idx]) {
-                    try flag_ptrs.append(flag);
-                    self.is_help_flag_actived = name[name_idx] == 'h';
-                    name_idx += 1;
-                }
-                if (name_idx >= name.len) break;
-            } else {
-                return error.CannotFindFlag;
+            while (name_idx < name.len) : (name_idx += 1) {
+                self.is_help = self.is_help or name[name_idx] == 'h';
+                // zig fmt: off
+                try flag_ptrs.append(subcmd.flags.getPtr(subcmd.short_arg_map[name[name_idx]])
+                    orelse return error.CannotFindFlag);
+                // zig fmt: on
             }
         } else {
-            for (self.main_flags.items) |*flag| {
-                if (flag.short != null and flag.short.? == name[name_idx]) {
-                    try flag_ptrs.append(flag);
-                    self.is_help_flag_actived = name[name_idx] == 'h';
-                    name_idx += 1;
-                }
-                if (name_idx >= name.len) break;
-            } else {
-                return error.CannotFindFlag;
+            while (name_idx < name.len) : (name_idx += 1) {
+                self.is_help = self.is_help or name[name_idx] == 'h';
+                // zig fmt: off
+                try flag_ptrs.append(self.main_flags.getPtr(self.short_arg_map[name[name_idx]])
+                    orelse return error.CannotFindFlag);
+                // zig fmt: on
             }
         }
 
@@ -525,7 +559,8 @@ pub const Zlap = struct {
         }
     }
 
-    fn makeHelpMessage(self: Self) ZlapError![]const u8 {
+    fn makeHelpMessage(self: *const Self) ZlapError![]const u8 {
+        var is_main_help = false;
         var msg = try ArrayList(u8).initCapacity(self.allocator, 400);
         errdefer msg.deinit();
 
@@ -533,7 +568,7 @@ pub const Zlap = struct {
         try writer.print("{s}\n\n", .{self.program_desc orelse ""});
 
         var args: *const ArrayList(Arg) = undefined;
-        var flags: *const ArrayList(Flag) = undefined;
+        var flags: *const StringHashMap(Flag) = undefined;
 
         if (self.active_subcmd_name) |subcmd_name| {
             const subcmd = self.subcommands.get(subcmd_name) orelse return error.InternalError;
@@ -542,6 +577,7 @@ pub const Zlap = struct {
             args = &subcmd.args;
             flags = &subcmd.flags;
         } else {
+            is_main_help = true;
             try writer.print("Usage: {s} [flags]", .{self.program_name});
 
             args = &self.main_args;
@@ -556,10 +592,12 @@ pub const Zlap = struct {
 
         try writer.print("Options:\n", .{});
         var max_len_flag_name: usize = 0;
-        for (flags.items) |flag| {
+        var flags_iter = flags.valueIterator();
+        while (flags_iter.next()) |flag| {
             max_len_flag_name = @max(max_len_flag_name, (flag.long orelse "").len);
         }
-        for (flags.items) |flag| {
+        flags_iter = flags.valueIterator();
+        while (flags_iter.next()) |flag| {
             try writer.print("    -{?c}, --{?s}", .{ flag.short, flag.long });
             var i = max_len_flag_name - (flag.long orelse "").len + 8;
             while (i > 0) : (i -= 1) {
@@ -568,10 +606,28 @@ pub const Zlap = struct {
             try writer.print("{?s}\n", .{flag.desc});
         }
 
+        if (is_main_help) {
+            try writer.print("\nSubcommands:\n", .{});
+            var max_len_subcmd_name: usize = 0;
+            var subcmd_iter = self.subcommands.valueIterator();
+            while (subcmd_iter.next()) |subcmd| {
+                max_len_subcmd_name = @max(max_len_subcmd_name, subcmd.name.len);
+            }
+            subcmd_iter = self.subcommands.valueIterator();
+            while (subcmd_iter.next()) |subcmd| {
+                try writer.print("    {s}", .{subcmd.name});
+                var i = max_len_subcmd_name - subcmd.name.len + 8;
+                while (i > 0) : (i -= 1) {
+                    try writer.print(" ", .{});
+                }
+                try writer.print("{?s}\n", .{subcmd.desc});
+            }
+        }
+
         return msg.toOwnedSlice();
     }
 
-    fn freeHelpMessage(self: Self, msg: []const u8) void {
+    fn freeHelpMessage(self: *const Self, msg: []const u8) void {
         self.allocator.free(msg);
     }
 };
