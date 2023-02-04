@@ -168,7 +168,7 @@ pub const Zlap = struct {
     main_flags: StringHashMap(Flag),
     short_arg_map: [256][]const u8,
     subcommands: StringHashMap(Subcmd),
-    active_subcmd_name: ?[]const u8,
+    active_subcmd: ?*Subcmd,
     is_help: bool,
     help_msg: []const u8,
 
@@ -185,7 +185,7 @@ pub const Zlap = struct {
         zlap.program_desc = zlap_json.desc;
         zlap.main_args_idx = 0;
         zlap.short_arg_map = [_][]const u8{""} ** 256;
-        zlap.active_subcmd_name = null;
+        zlap.active_subcmd = null;
         zlap.is_help = false;
 
         zlap.main_args = try ArrayList(Arg).initCapacity(allocator, arguments_capacity);
@@ -255,10 +255,10 @@ pub const Zlap = struct {
     }
 
     pub fn isSubcmdActive(self: *const Self, name: ?[]const u8) bool {
-        if (name == null and self.active_subcmd_name == null) return true;
-        if (self.active_subcmd_name == null) return false;
+        if (name == null and self.active_subcmd == null) return true;
+        if (self.active_subcmd == null) return false;
 
-        return mem.eql(u8, self.active_subcmd_name.?, name.?);
+        return mem.eql(u8, self.active_subcmd.?.name, name.?);
     }
 
     fn initFields(self: *Self) ZlapError!void {
@@ -418,17 +418,16 @@ pub const Zlap = struct {
                 subcmd_name,
             );
 
-            self.active_subcmd_name = subcmd_name;
-            const subcmd =
+            self.active_subcmd =
                 self.subcommands.getPtr(subcmd_name) orelse return error.InvalidSubcommand;
             idx.* += 1;
 
             while (idx.* < raw_args.len) : (idx.* += 1) {
                 const parsed_flag = FlagName.parseFlagName(raw_args[idx.*]);
                 switch (parsed_flag) {
-                    .long => |name| try self.parseLongFlag(subcmd, idx, name),
-                    .short => |name| try self.parseShortFlag(subcmd, idx, name),
-                    .normal => |name| try self.parseNormalCommand(idx.* == 0, subcmd, idx, name),
+                    .long => |name| try self.parseLongFlag(self.active_subcmd, idx, name),
+                    .short => |name| try self.parseShortFlag(self.active_subcmd, idx, name),
+                    .normal => |name| try self.parseNormalCommand(idx.* == 0, self.active_subcmd, idx, name),
                 }
             }
         } else {
@@ -570,9 +569,8 @@ pub const Zlap = struct {
         var args: *const ArrayList(Arg) = undefined;
         var flags: *const StringHashMap(Flag) = undefined;
 
-        if (self.active_subcmd_name) |subcmd_name| {
-            const subcmd = self.subcommands.get(subcmd_name) orelse return error.InternalError;
-            try writer.print("Usage: {s} {s} [flags]", .{ self.program_name, subcmd_name });
+        if (self.active_subcmd) |subcmd| {
+            try writer.print("Usage: {s} {s} [flags]", .{ self.program_name, subcmd.name });
 
             args = &subcmd.args;
             flags = &subcmd.flags;
