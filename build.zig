@@ -28,6 +28,10 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
 
+    const zlap_mod = b.createModule(.{
+        .source_file = .{ .path = "src/zlap.zig" },
+    });
+
     const example_exe = b.addExecutable(.{
         .name = "zlap-example",
         .root_source_file = .{ .path = "example/main.zig" },
@@ -35,7 +39,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .version = version,
     });
-    example_exe.linkLibrary(lib);
+    example_exe.addModule("zlap", zlap_mod);
     example_exe.install();
 
     const example_run = example_exe.run();
