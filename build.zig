@@ -28,6 +28,10 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
 
+    b.addModule(.{
+        .name = "zlap",
+        .source_file = .{ .path = "src/zlap.zig" },
+    });
     const zlap_mod = b.createModule(.{
         .source_file = .{ .path = "src/zlap.zig" },
     });
