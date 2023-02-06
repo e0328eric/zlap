@@ -589,36 +589,18 @@ pub const Zlap = struct {
         }
 
         try writer.print("Options:\n", .{});
-        var max_len_flag_name: usize = 0;
         var flags_iter = flags.valueIterator();
         while (flags_iter.next()) |flag| {
-            max_len_flag_name = @max(max_len_flag_name, (flag.long orelse "").len);
-        }
-        flags_iter = flags.valueIterator();
-        while (flags_iter.next()) |flag| {
-            try writer.print("    -{?c}, --{?s}", .{ flag.short, flag.long });
-            var i = max_len_flag_name - (flag.long orelse "").len + 8;
-            while (i > 0) : (i -= 1) {
-                try writer.print(" ", .{});
-            }
-            try writer.print("{?s}\n", .{flag.desc});
+            try writer.print("    -{?c}, --{?s}\n", .{ flag.short, flag.long });
+            try writer.print("        {?s}\n\n", .{flag.desc});
         }
 
         if (is_main_help) {
             try writer.print("\nSubcommands:\n", .{});
-            var max_len_subcmd_name: usize = 0;
             var subcmd_iter = self.subcommands.valueIterator();
             while (subcmd_iter.next()) |subcmd| {
-                max_len_subcmd_name = @max(max_len_subcmd_name, subcmd.name.len);
-            }
-            subcmd_iter = self.subcommands.valueIterator();
-            while (subcmd_iter.next()) |subcmd| {
-                try writer.print("    {s}", .{subcmd.name});
-                var i = max_len_subcmd_name - subcmd.name.len + 8;
-                while (i > 0) : (i -= 1) {
-                    try writer.print(" ", .{});
-                }
-                try writer.print("{?s}\n", .{subcmd.desc});
+                try writer.print("    {s}\n", .{subcmd.name});
+                try writer.print("        {?s}\n\n", .{subcmd.desc});
             }
         }
 
