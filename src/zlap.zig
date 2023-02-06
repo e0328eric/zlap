@@ -595,7 +595,7 @@ pub const Zlap = struct {
             try writer.print("        {?s}\n\n", .{flag.desc});
         }
 
-        if (is_main_help) {
+        if (is_main_help and self.subcommands.count() > 0) {
             try writer.print("\nSubcommands:\n", .{});
             var subcmd_iter = self.subcommands.valueIterator();
             while (subcmd_iter.next()) |subcmd| {
