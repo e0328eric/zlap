@@ -125,3 +125,7 @@ pub fn main() !void {
     }
 }
 ```
+
+# Actual Usage of this Library
+See (xilo)[https://github.com/e0328eric/xilo]: a simple replacement of `rm` command.
+.
