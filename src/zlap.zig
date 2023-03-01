@@ -490,7 +490,7 @@ pub const Zlap = struct {
             }
         }
 
-        for (flag_ptrs.items) |flag_ptr, i| {
+        for (flag_ptrs.items, 0..) |flag_ptr, i| {
             try parseValue(true, idx, flag_ptr, flag_ptrs.items.len, i);
         }
     }
