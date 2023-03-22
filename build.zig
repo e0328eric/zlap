@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const version = std.builtin.Version{
         .major = 0,
         .minor = 1,
-        .patch = 2,
+        .patch = 3,
     };
 
     const lib = b.addStaticLibrary(.{
@@ -28,11 +28,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
 
-    b.addModule(.{
-        .name = "zlap",
-        .source_file = .{ .path = "src/zlap.zig" },
-    });
-    const zlap_mod = b.createModule(.{
+    const zlap_mod = b.addModule("zlap", .{
         .source_file = .{ .path = "src/zlap.zig" },
     });
 
