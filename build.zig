@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const version = std.builtin.Version{
         .major = 0,
         .minor = 1,
-        .patch = 3,
+        .patch = 4,
     };
 
     const lib = b.addStaticLibrary(.{
@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .version = version,
     });
-    lib.install();
+    b.installArtifact(lib);
 
     const main_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/zlap.zig" },
@@ -40,9 +40,9 @@ pub fn build(b: *std.Build) void {
         .version = version,
     });
     example_exe.addModule("zlap", zlap_mod);
-    example_exe.install();
+    b.installArtifact(example_exe);
 
-    const example_run = example_exe.run();
+    const example_run = b.addRunArtifact(example_exe);
     example_run.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         example_run.addArgs(args);
