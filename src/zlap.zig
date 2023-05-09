@@ -3,6 +3,7 @@ const ascii = std.ascii;
 const fmt = std.fmt;
 const io = std.io;
 const json = std.json;
+const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
 const process = std.process;
@@ -590,17 +591,35 @@ pub const Zlap = struct {
 
         try writer.print("Options:\n", .{});
         var flags_iter = flags.valueIterator();
+
+        var padding: usize = 0;
         while (flags_iter.next()) |flag| {
-            try writer.print("    -{?c}, --{?s}\n", .{ flag.short, flag.long });
-            try writer.print("        {?s}\n\n", .{flag.desc});
+            const flag_long_len = math.max((flag.long orelse "").len, 4);
+            padding = math.max(padding, flag_long_len);
+        }
+
+        flags_iter = flags.valueIterator();
+        while (flags_iter.next()) |flag| {
+            try writer.print("    -{?c}, --{?s}", .{ flag.short, flag.long });
+            try writer.writeByteNTimes(' ', padding - (flag.long orelse "").len);
+            try writer.print("    {?s}\n", .{flag.desc});
         }
 
         if (is_main_help and self.subcommands.count() > 0) {
             try writer.print("\nSubcommands:\n", .{});
             var subcmd_iter = self.subcommands.valueIterator();
+
+            padding = 0;
             while (subcmd_iter.next()) |subcmd| {
-                try writer.print("    {s}\n", .{subcmd.name});
-                try writer.print("        {?s}\n\n", .{subcmd.desc});
+                const subcmd_len = math.max(subcmd.name.len, 4);
+                padding = math.max(padding, subcmd_len);
+            }
+
+            subcmd_iter = self.subcommands.valueIterator();
+            while (subcmd_iter.next()) |subcmd| {
+                try writer.print("    {s}", .{subcmd.name});
+                try writer.writeByteNTimes(' ', padding - subcmd.name.len);
+                try writer.print("        {?s}\n", .{subcmd.desc});
             }
         }
 
