@@ -1,6 +1,14 @@
 # zlap
 Command line argument parser for zig using JSON file.
 
+## Note: Why the version of this library is v0.1.9999?
+This is because, after version 0.1.6, I updates a lot to upgrade the version into 0.2.0.
+However, before to upgrade into 0.2.0, I need some test for this library to ensure
+there is few bug (at least I cannot realize in deep but it is better not having any bugs.),
+I will release the version 0.2.0.
+
+The following description focus on the version 0.1.9999(or 0.2.0 to say).
+
 # Features
 - short flag support: `-a` for instance.
     - short flags can be merged as long as every flags except the last one does not takes values.
@@ -55,9 +63,9 @@ Following code below is in the `example` folder:
       ],
       "flags": [
         {
-          "long": "conti",
+          "long": null,
           "short": "c",
-          "desc": "Print this string (i)",
+          "desc": "Print this string (c)",
           "type": "bool",
           "default": "false"
         },
@@ -66,7 +74,21 @@ Following code below is in the `example` folder:
           "short": "f",
           "desc": "Print this string (foo)",
           "type": "strings",
-          "default": null
+          "default": "print THIS!"
+        },
+        {
+          "long": "bar",
+          "short": null,
+          "desc": "Print this string (bar)",
+          "type": "bool",
+          "default": "true"
+        },
+        {
+          "long": "baz",
+          "short": "B",
+          "desc": "Print this string (baz)",
+          "type": "number",
+          "default": "123"
         }
       ]
     },
@@ -119,10 +141,23 @@ pub fn main() !void {
 
     const subcmd = zlap.subcommands.get("init").?;
     const foo_flag = subcmd.flags.get("foo") orelse return;
+    const c_flag = subcmd.flags.get("c!") orelse return;
+    const bar_flag = subcmd.flags.get("bar") orelse return;
+    const baz_flag = subcmd.flags.get("baz") orelse return;
 
     for (foo_flag.value.strings.items) |string| {
         std.debug.print("<{s}>\n", .{string});
     }
+
+    if (c_flag.value.bool) {
+        std.debug.print("flag -c sets to true\n", .{});
+    }
+
+    if (!bar_flag.value.bool) {
+        std.debug.print("flag --bar sets to false\n", .{});
+    }
+
+    std.debug.print("flag --baz sets to {}\n", .{baz_flag.value.number});
 }
 ```
 

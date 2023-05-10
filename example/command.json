@@ -40,9 +40,9 @@
       ],
       "flags": [
         {
-          "long": "conti",
+          "long": null,
           "short": "c",
-          "desc": "Print this string (i)",
+          "desc": "Print this string (c)",
           "type": "bool",
           "default": "false"
         },
@@ -51,7 +51,21 @@
           "short": "f",
           "desc": "Print this string (foo)",
           "type": "strings",
-          "default": null
+          "default": "print THIS!"
+        },
+        {
+          "long": "bar",
+          "short": null,
+          "desc": "Print this string (bar)",
+          "type": "bool",
+          "default": "true"
+        },
+        {
+          "long": "baz",
+          "short": "B",
+          "desc": "Print this string (baz)",
+          "type": "number",
+          "default": "123"
         }
       ]
     },

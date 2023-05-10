@@ -24,6 +24,16 @@ const valid_lst_types = [_][]const u8{
     "strings",
 };
 
+fn strToType(comptime string: []const u8) type {
+    if (comptime mem.eql(u8, string, "bool")) return bool;
+    if (comptime mem.eql(u8, string, "number")) return i64;
+    if (comptime mem.eql(u8, string, "string")) return []const u8;
+
+    @compileError(
+        "The string should be either `bool`, `number` or `string`. But got " ++ string ++ ".",
+    );
+}
+
 fn strToTypeForList(comptime string: []const u8) type {
     if (comptime mem.eql(u8, string, "bools")) return bool;
     if (comptime mem.eql(u8, string, "numbers")) return i64;
@@ -34,6 +44,8 @@ fn strToTypeForList(comptime string: []const u8) type {
     );
 }
 
+const ONLY_SHORT_HASH_SUFFIX: u8 = '!';
+
 const ArgJson = struct {
     meta: []const u8,
     desc: ?[]const u8,
@@ -42,7 +54,7 @@ const ArgJson = struct {
 };
 
 const FlagJson = struct {
-    long: []const u8,
+    long: ?[]const u8,
     short: ?[]const u8,
     desc: ?[]const u8,
     type: []const u8,
@@ -70,13 +82,16 @@ pub const ZlapError = Allocator.Error || fmt.ParseIntError || error{
     CommandParseFailed,
     FlagValueNotFound,
     InternalError,
+    InvalidFlagName,
     InvalidMultipleShortFlags,
     InvalidSubcommand,
     InvalidTypeStringFound,
     InvalidValue,
+    JsonParseFailed,
     ShortFlagNameAlreadyExists,
     ShortFlagNameIsTooLong,
     SubcommandConflicted,
+    UnknownDefaultValueString,
 };
 
 pub const Value = union(enum) {
@@ -95,12 +110,12 @@ pub const Value = union(enum) {
     }
 };
 
-const FlagName = union(enum) {
+const ParsedFlagName = union(enum) {
     long: []const u8,
     short: []const u8,
     normal: []const u8,
 
-    fn parseFlagName(string: []const u8) FlagName {
+    fn parseFlagName(string: []const u8) ParsedFlagName {
         if (mem.startsWith(u8, string, "--")) return .{ .long = string[2..] };
         if (mem.startsWith(u8, string, "-")) return .{ .short = string[1..] };
         return .{ .normal = string };
@@ -134,7 +149,7 @@ pub const Subcmd = struct {
     args: ArrayList(Arg),
     args_idx: usize,
     flags: StringHashMap(Flag),
-    short_arg_map: [256][]const u8,
+    short_arg_map: [256]?[]const u8,
 
     fn deinit(self: *@This()) void {
         for (self.args.items) |arg| {
@@ -167,7 +182,7 @@ pub const Zlap = struct {
     main_args: ArrayList(Arg),
     main_args_idx: usize,
     main_flags: StringHashMap(Flag),
-    short_arg_map: [256][]const u8,
+    short_arg_map: [256]?[]const u8,
     subcommands: StringHashMap(Subcmd),
     active_subcmd: ?*Subcmd,
     is_help: bool,
@@ -177,7 +192,9 @@ pub const Zlap = struct {
 
     pub fn init(allocator: Allocator, comptime command_json: []const u8) !Self {
         var tok_stream = json.TokenStream.init(command_json);
-        zlap_json = try json.parse(ZlapJson, &tok_stream, .{ .allocator = allocator });
+        zlap_json = json.parse(ZlapJson, &tok_stream, .{ .allocator = allocator }) catch {
+            return error.JsonParseFailed;
+        };
         errdefer json.parseFree(ZlapJson, zlap_json, .{ .allocator = allocator });
 
         var zlap: Self = undefined;
@@ -185,7 +202,7 @@ pub const Zlap = struct {
         zlap.program_name = zlap_json.name;
         zlap.program_desc = zlap_json.desc;
         zlap.main_args_idx = 0;
-        zlap.short_arg_map = [_][]const u8{""} ** 256;
+        zlap.short_arg_map = [_]?[]const u8{null} ** 256;
         zlap.active_subcmd = null;
         zlap.is_help = false;
 
@@ -287,16 +304,22 @@ pub const Zlap = struct {
         );
         self.short_arg_map[@intCast(usize, 'h')] = "help";
 
+        var short_name_for_hash = [2]u8{ 0, ONLY_SHORT_HASH_SUFFIX };
         for (zlap_json.flags) |flag_json| {
             const value = try makeValue(self.allocator, flag_json);
             errdefer value.deinit();
+
+            if (flag_json.short == null and flag_json.long == null) {
+                return error.InvalidFlagName;
+            }
 
             const short_name = if (flag_json.short) |short| short: {
                 if (short.len > 1) return error.ShortFlagNameIsTooLong;
                 break :short short[0];
             } else null;
+
             try self.main_flags.put(
-                flag_json.long,
+                makeHashName(flag_json.long, &short_name_for_hash, short_name),
                 .{
                     .long = flag_json.long,
                     .short = short_name,
@@ -307,7 +330,9 @@ pub const Zlap = struct {
 
             if (short_name) |sn| {
                 const long_name_ptr = &self.short_arg_map[@intCast(usize, sn)];
-                if (long_name_ptr.*.len > 0) return error.ShortFlagNameAlreadyExists;
+                if (long_name_ptr.* != null and long_name_ptr.*.?.len > 0) {
+                    return error.ShortFlagNameAlreadyExists;
+                }
                 long_name_ptr.* = flag_json.long;
             }
         }
@@ -330,7 +355,7 @@ pub const Zlap = struct {
                 flags.deinit();
             }
             try flags.ensureTotalCapacity(flags_capacity);
-            var short_arg_map = [_][]const u8{""} ** 256;
+            var short_arg_map = [_]?[]const u8{null} ** 256;
 
             for (subcmd_json.args) |arg_json| {
                 const value = try makeValue(self.allocator, arg_json);
@@ -360,12 +385,17 @@ pub const Zlap = struct {
                 const value = try makeValue(self.allocator, flag_json);
                 errdefer value.deinit();
 
+                if (flag_json.short == null and flag_json.long == null) {
+                    return error.InvalidFlagName;
+                }
+
                 const short_name = if (flag_json.short) |short| short: {
                     if (short.len > 1) return error.ShortFlagNameIsTooLong;
                     break :short short[0];
                 } else null;
+
                 try flags.put(
-                    flag_json.long,
+                    makeHashName(flag_json.long, &short_name_for_hash, short_name),
                     .{
                         .long = flag_json.long,
                         .short = short_name,
@@ -376,7 +406,9 @@ pub const Zlap = struct {
 
                 if (short_name) |sn| {
                     const long_name_ptr = &short_arg_map[@intCast(usize, sn)];
-                    if (long_name_ptr.*.len > 0) return error.ShortFlagNameAlreadyExists;
+                    if (long_name_ptr.* != null and long_name_ptr.*.?.len > 0) {
+                        return error.ShortFlagNameAlreadyExists;
+                    }
                     long_name_ptr.* = flag_json.long;
                 }
             }
@@ -395,7 +427,7 @@ pub const Zlap = struct {
     fn parseCommandlineArguments(self: *Self) ZlapError!void {
         var idx: usize = 1;
         while (idx < raw_args.len) : (idx += 1) {
-            const parsed_flag = FlagName.parseFlagName(raw_args[idx]);
+            const parsed_flag = ParsedFlagName.parseFlagName(raw_args[idx]);
             switch (parsed_flag) {
                 .long => |name| try self.parseLongFlag(null, &idx, name),
                 .short => |name| try self.parseShortFlag(null, &idx, name),
@@ -424,7 +456,7 @@ pub const Zlap = struct {
             idx.* += 1;
 
             while (idx.* < raw_args.len) : (idx.* += 1) {
-                const parsed_flag = FlagName.parseFlagName(raw_args[idx.*]);
+                const parsed_flag = ParsedFlagName.parseFlagName(raw_args[idx.*]);
                 switch (parsed_flag) {
                     .long => |name| try self.parseLongFlag(self.active_subcmd, idx, name),
                     .short => |name| try self.parseShortFlag(self.active_subcmd, idx, name),
@@ -473,11 +505,13 @@ pub const Zlap = struct {
         var flag_ptrs = try ArrayList(*Flag).initCapacity(self.allocator, name.len);
         defer flag_ptrs.deinit();
 
+        var short_name_for_hash = [2]u8{ 0, ONLY_SHORT_HASH_SUFFIX };
         if (maybe_subcmd) |subcmd| {
             while (name_idx < name.len) : (name_idx += 1) {
                 self.is_help = self.is_help or name[name_idx] == 'h';
                 // zig fmt: off
-                try flag_ptrs.append(subcmd.flags.getPtr(subcmd.short_arg_map[name[name_idx]])
+                try flag_ptrs.append(subcmd.flags.getPtr(makeHashName(
+                        subcmd.short_arg_map[name[name_idx]], &short_name_for_hash, name[name_idx]))
                     orelse return error.CannotFindFlag);
                 // zig fmt: on
             }
@@ -485,7 +519,8 @@ pub const Zlap = struct {
             while (name_idx < name.len) : (name_idx += 1) {
                 self.is_help = self.is_help or name[name_idx] == 'h';
                 // zig fmt: off
-                try flag_ptrs.append(self.main_flags.getPtr(self.short_arg_map[name[name_idx]])
+                try flag_ptrs.append(self.main_flags.getPtr(makeHashName(
+                        self.short_arg_map[name[name_idx]], &short_name_for_hash, name[name_idx]))
                     orelse return error.CannotFindFlag);
                 // zig fmt: on
             }
@@ -503,7 +538,7 @@ pub const Zlap = struct {
         flag_ptrs_len: ?usize,
         flag_ptrs_idx: ?usize,
     ) ZlapError!void {
-        var flag_name: FlagName = undefined;
+        var flag_name: ParsedFlagName = undefined;
 
         if (multiple_short) {
             if (flag_ptrs_idx.? + 1 < flag_ptrs_len.? and ptr.value != .bool)
@@ -515,21 +550,21 @@ pub const Zlap = struct {
         }
 
         switch (ptr.value) {
-            .bool => |*val| val.* = true,
+            .bool => |*val| val.* = !val.*,
             .number => |*val| {
-                flag_name = FlagName.parseFlagName(raw_args[idx.*]);
+                flag_name = ParsedFlagName.parseFlagName(raw_args[idx.*]);
                 if (flag_name != .normal) return error.FlagValueNotFound;
                 val.* = try fmt.parseInt(i64, flag_name.normal, 0);
             },
             .string => |*val| {
-                flag_name = FlagName.parseFlagName(raw_args[idx.*]);
+                flag_name = ParsedFlagName.parseFlagName(raw_args[idx.*]);
                 if (flag_name != .normal) return error.FlagValueNotFound;
                 val.* = flag_name.normal;
             },
             .bools => |*val| {
                 while (blk: {
                     if (idx.* >= raw_args.len) break :blk false;
-                    flag_name = FlagName.parseFlagName(raw_args[idx.*]);
+                    flag_name = ParsedFlagName.parseFlagName(raw_args[idx.*]);
                     break :blk flag_name == .normal;
                 }) : (idx.* += 1) {
                     try val.*.append(try isTruthy(flag_name.normal));
@@ -539,7 +574,7 @@ pub const Zlap = struct {
             .numbers => |*val| {
                 while (blk: {
                     if (idx.* >= raw_args.len) break :blk false;
-                    flag_name = FlagName.parseFlagName(raw_args[idx.*]);
+                    flag_name = ParsedFlagName.parseFlagName(raw_args[idx.*]);
                     break :blk flag_name == .normal;
                 }) : (idx.* += 1) {
                     try val.*.append(try fmt.parseInt(i64, flag_name.normal, 0));
@@ -549,7 +584,7 @@ pub const Zlap = struct {
             .strings => |*val| {
                 while (blk: {
                     if (idx.* >= raw_args.len) break :blk false;
-                    flag_name = FlagName.parseFlagName(raw_args[idx.*]);
+                    flag_name = ParsedFlagName.parseFlagName(raw_args[idx.*]);
                     break :blk flag_name == .normal;
                 }) : (idx.* += 1) {
                     try val.*.append(flag_name.normal);
@@ -600,8 +635,18 @@ pub const Zlap = struct {
 
         flags_iter = flags.valueIterator();
         while (flags_iter.next()) |flag| {
-            try writer.print("    -{?c}, --{?s}", .{ flag.short, flag.long });
-            try writer.writeByteNTimes(' ', padding - (flag.long orelse "").len);
+            try writer.print("    ", .{});
+            if (flag.short) |short| {
+                try writer.print("-{c},", .{short});
+            } else {
+                try writer.print(" " ** 3, .{});
+            }
+            if (flag.long) |long| {
+                try writer.print(" --{s}", .{long});
+                try writer.writeByteNTimes(' ', padding - (flag.long orelse "").len);
+            } else {
+                try writer.writeByteNTimes(' ', padding +| 3);
+            }
             try writer.print("    {?s}\n", .{flag.desc});
         }
 
@@ -632,9 +677,29 @@ pub const Zlap = struct {
 };
 
 fn makeValue(allocator: Allocator, json_data: anytype) ZlapError!Value {
+    // zig fmt: off
+    if (!@hasField(@TypeOf(json_data), "default")) {
+        @compileError("The type " ++ @typeName(@TypeOf(json_data))
+            ++ " does not have `default` field.");
+    }
+    // zig fmt: on
+
     inline for (valid_types) |@"type"| {
         if (mem.eql(u8, json_data.type, @"type")) {
-            return @unionInit(Value, @"type", undefined);
+            return @unionInit(
+                Value,
+                @"type",
+                if (json_data.default) |default_val|
+                    try parseDefaultValue(strToType(@"type"), default_val)
+                else blk: {
+                    break :blk switch (strToType(@"type")) {
+                        bool => false,
+                        i64 => 0,
+                        []const u8 => "",
+                        else => unreachable,
+                    };
+                },
+            );
         }
     }
     inline for (valid_lst_types) |@"type"| {
@@ -652,6 +717,21 @@ fn makeValue(allocator: Allocator, json_data: anytype) ZlapError!Value {
     return error.InvalidTypeStringFound;
 }
 
+fn parseDefaultValue(comptime T: type, string: []const u8) ZlapError!T {
+    switch (T) {
+        bool => {
+            // zig fmt: off
+            if (mem.eql(u8, string, "true")) return true
+            else if (mem.eql(u8, string, "false")) return false
+            else return error.UnknownDefaultValueString;
+            // zig fmt: on
+        },
+        i64 => return fmt.parseInt(i64, string, 10),
+        []const u8 => return string,
+        else => @compileError("parseDefaultValue function does not support for a type " ++ @typeName(T)),
+    }
+}
+
 fn isTruthy(string: []const u8) ZlapError!bool {
     var buf: [1024]u8 = undefined;
     const lower_string = ascii.lowerString(&buf, string);
@@ -662,4 +742,11 @@ fn isTruthy(string: []const u8) ZlapError!bool {
     if (lower_string.len == 1 and lower_string[0] == 'f') return false;
 
     return error.InvalidValue;
+}
+
+fn makeHashName(long_name: ?[]const u8, short_name_buf: []u8, short_name: ?u8) []const u8 {
+    return if (long_name) |long| long else blk: {
+        short_name_buf[0] = short_name.?;
+        break :blk short_name_buf;
+    };
 }
