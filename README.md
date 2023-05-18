@@ -1,14 +1,6 @@
 # zlap
 Command line argument parser for zig using JSON file.
 
-## Note: Why the version of this library is v0.1.9999?
-This is because, after version 0.1.6, I updates a lot to upgrade the version into 0.2.0.
-However, before to upgrade into 0.2.0, I need some test for this library to ensure
-there is few bug (at least I cannot realize in deep but it is better not having any bugs.),
-I will release the version 0.2.0.
-
-The following description focus on the version 0.1.9999(or 0.2.0 to say).
-
 # Features
 - short flag support: `-a` for instance.
     - short flags can be merged as long as every flags except the last one does not takes values.
