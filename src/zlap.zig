@@ -191,11 +191,10 @@ pub const Zlap = struct {
     const Self = @This();
 
     pub fn init(allocator: Allocator, comptime command_json: []const u8) !Self {
-        var tok_stream = json.TokenStream.init(command_json);
-        zlap_json = json.parse(ZlapJson, &tok_stream, .{ .allocator = allocator }) catch {
+        zlap_json = json.parseFromSlice(ZlapJson, allocator, command_json, .{}) catch {
             return error.JsonParseFailed;
         };
-        errdefer json.parseFree(ZlapJson, zlap_json, .{ .allocator = allocator });
+        errdefer json.parseFree(ZlapJson, allocator, zlap_json);
 
         var zlap: Self = undefined;
         zlap.allocator = allocator;
@@ -268,7 +267,7 @@ pub const Zlap = struct {
         self.subcommands.deinit();
         self.freeHelpMessage(self.help_msg);
 
-        json.parseFree(ZlapJson, zlap_json, .{ .allocator = self.allocator });
+        json.parseFree(ZlapJson, self.allocator, zlap_json);
         process.argsFree(self.allocator, raw_args);
     }
 
