@@ -6,8 +6,8 @@ pub fn build(b: *std.Build) void {
 
     const version = std.builtin.Version{
         .major = 0,
-        .minor = 1,
-        .patch = 9999,
+        .minor = 2,
+        .patch = 0,
     };
 
     const lib = b.addStaticLibrary(.{
