@@ -94,6 +94,18 @@ pub const ZlapError = Allocator.Error || fmt.ParseIntError || error{
     UnknownDefaultValueString,
 };
 
+const ParsedCommandName = union(enum) {
+    long: []const u8,
+    short: []const u8,
+    normal: []const u8,
+
+    fn parseCommandName(string: []const u8) @This() {
+        if (mem.startsWith(u8, string, "--")) return .{ .long = string[2..] };
+        if (mem.startsWith(u8, string, "-")) return .{ .short = string[1..] };
+        return .{ .normal = string };
+    }
+};
+
 pub const Value = union(enum) {
     bool: bool,
     number: i64,
@@ -108,17 +120,12 @@ pub const Value = union(enum) {
             else => {},
         }
     }
-};
 
-const ParsedFlagName = union(enum) {
-    long: []const u8,
-    short: []const u8,
-    normal: []const u8,
-
-    fn parseFlagName(string: []const u8) ParsedFlagName {
-        if (mem.startsWith(u8, string, "--")) return .{ .long = string[2..] };
-        if (mem.startsWith(u8, string, "-")) return .{ .short = string[1..] };
-        return .{ .normal = string };
+    fn isPlural(self: @This()) bool {
+        return switch (self) {
+            .bools, .numbers, .strings => true,
+            else => false,
+        };
     }
 };
 
@@ -426,8 +433,8 @@ pub const Zlap = struct {
     fn parseCommandlineArguments(self: *Self) ZlapError!void {
         var idx: usize = 1;
         while (idx < raw_args.len) : (idx += 1) {
-            const parsed_flag = ParsedFlagName.parseFlagName(raw_args[idx]);
-            switch (parsed_flag) {
+            const parsed_command = ParsedCommandName.parseCommandName(raw_args[idx]);
+            switch (parsed_command) {
                 .long => |name| try self.parseLongFlag(null, &idx, name),
                 .short => |name| try self.parseShortFlag(null, &idx, name),
                 .normal => |name| try self.parseNormalCommand(idx == 1, null, &idx, name),
@@ -455,7 +462,7 @@ pub const Zlap = struct {
             idx.* += 1;
 
             while (idx.* < raw_args.len) : (idx.* += 1) {
-                const parsed_flag = ParsedFlagName.parseFlagName(raw_args[idx.*]);
+                const parsed_flag = ParsedCommandName.parseCommandName(raw_args[idx.*]);
                 switch (parsed_flag) {
                     .long => |name| try self.parseLongFlag(self.active_subcmd, idx, name),
                     .short => |name| try self.parseShortFlag(self.active_subcmd, idx, name),
@@ -537,7 +544,7 @@ pub const Zlap = struct {
         flag_ptrs_len: ?usize,
         flag_ptrs_idx: ?usize,
     ) ZlapError!void {
-        var flag_name: ParsedFlagName = undefined;
+        var flag_name: ParsedCommandName = undefined;
 
         if (multiple_short) {
             if (flag_ptrs_idx.? + 1 < flag_ptrs_len.? and ptr.value != .bool)
@@ -551,19 +558,19 @@ pub const Zlap = struct {
         switch (ptr.value) {
             .bool => |*val| val.* = !val.*,
             .number => |*val| {
-                flag_name = ParsedFlagName.parseFlagName(raw_args[idx.*]);
+                flag_name = ParsedCommandName.parseCommandName(raw_args[idx.*]);
                 if (flag_name != .normal) return error.FlagValueNotFound;
                 val.* = try fmt.parseInt(i64, flag_name.normal, 0);
             },
             .string => |*val| {
-                flag_name = ParsedFlagName.parseFlagName(raw_args[idx.*]);
+                flag_name = ParsedCommandName.parseCommandName(raw_args[idx.*]);
                 if (flag_name != .normal) return error.FlagValueNotFound;
                 val.* = flag_name.normal;
             },
             .bools => |*val| {
                 while (blk: {
                     if (idx.* >= raw_args.len) break :blk false;
-                    flag_name = ParsedFlagName.parseFlagName(raw_args[idx.*]);
+                    flag_name = ParsedCommandName.parseCommandName(raw_args[idx.*]);
                     break :blk flag_name == .normal;
                 }) : (idx.* += 1) {
                     try val.*.append(try isTruthy(flag_name.normal));
@@ -573,7 +580,7 @@ pub const Zlap = struct {
             .numbers => |*val| {
                 while (blk: {
                     if (idx.* >= raw_args.len) break :blk false;
-                    flag_name = ParsedFlagName.parseFlagName(raw_args[idx.*]);
+                    flag_name = ParsedCommandName.parseCommandName(raw_args[idx.*]);
                     break :blk flag_name == .normal;
                 }) : (idx.* += 1) {
                     try val.*.append(try fmt.parseInt(i64, flag_name.normal, 0));
@@ -583,7 +590,7 @@ pub const Zlap = struct {
             .strings => |*val| {
                 while (blk: {
                     if (idx.* >= raw_args.len) break :blk false;
-                    flag_name = ParsedFlagName.parseFlagName(raw_args[idx.*]);
+                    flag_name = ParsedCommandName.parseCommandName(raw_args[idx.*]);
                     break :blk flag_name == .normal;
                 }) : (idx.* += 1) {
                     try val.*.append(flag_name.normal);
@@ -611,26 +618,45 @@ pub const Zlap = struct {
             flags = &subcmd.flags;
         } else {
             is_main_help = true;
-            try writer.print("Usage: {s} [flags]", .{self.program_name});
+            try writer.print("Usage: {s} [subcommands] [flags]", .{self.program_name});
 
             args = &self.main_args;
             flags = &self.main_flags;
         }
 
+        var padding: usize = 0;
         for (args.items) |arg| {
+            padding = math.max(padding, arg.meta.len);
             try writer.print(" {s}", .{arg.meta});
+            if (arg.value.isPlural()) {
+                try writer.print("...", .{});
+            }
+        } else {
+            try writer.print("\n\n", .{});
+        }
+
+        var flags_iter = flags.valueIterator();
+        while (flags_iter.next()) |flag| {
+            const flag_long_len = math.max((flag.long orelse "").len, 4);
+            padding = math.max(padding, flag_long_len);
+        }
+
+        try writer.print("Arguments:\n", .{});
+        for (args.items) |arg| {
+            try writer.print("    {s}", .{arg.meta});
+            if (arg.value.isPlural()) {
+                try writer.print("...", .{});
+                try writer.writeByteNTimes(' ', padding - arg.meta.len + 7);
+            } else {
+                try writer.writeByteNTimes(' ', padding - arg.meta.len + 10);
+            }
+            if (arg.desc) |desc| try writer.print("{s}", .{desc});
+            try writer.writeByte('\n');
         } else {
             try writer.print("\n\n", .{});
         }
 
         try writer.print("Options:\n", .{});
-        var flags_iter = flags.valueIterator();
-
-        var padding: usize = 0;
-        while (flags_iter.next()) |flag| {
-            const flag_long_len = math.max((flag.long orelse "").len, 4);
-            padding = math.max(padding, flag_long_len);
-        }
 
         flags_iter = flags.valueIterator();
         while (flags_iter.next()) |flag| {
@@ -642,11 +668,17 @@ pub const Zlap = struct {
             }
             if (flag.long) |long| {
                 try writer.print(" --{s}", .{long});
-                try writer.writeByteNTimes(' ', padding - (flag.long orelse "").len);
+                if (flag.value.isPlural()) {
+                    try writer.print("...", .{});
+                    try writer.writeByteNTimes(' ', padding - (flag.long orelse "").len + 1);
+                } else {
+                    try writer.writeByteNTimes(' ', padding - (flag.long orelse "").len + 4);
+                }
             } else {
-                try writer.writeByteNTimes(' ', padding +| 3);
+                try writer.writeByteNTimes(' ', padding + 7);
             }
-            try writer.print("    {?s}\n", .{flag.desc});
+            if (flag.desc) |desc| try writer.print("{s}", .{desc});
+            try writer.writeByte('\n');
         }
 
         if (is_main_help and self.subcommands.count() > 0) {

@@ -16,7 +16,7 @@ pub fn main() !void {
     }
 
     if (!zlap.isSubcmdActive("init")) {
-        std.debug.print("{s}\n", .{zlap.help_msg});
+        std.debug.print("Other subcommand was found. Quitting...\n", .{});
         return;
     }
 

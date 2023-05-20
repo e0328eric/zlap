@@ -47,9 +47,15 @@ Following code below is in the `example` folder:
       "desc": "An init",
       "args": [
         {
-          "desc": "print this argument as a string",
+          "desc": null,
           "meta": "PRINT",
           "type": "string",
+          "default": null
+        },
+        {
+          "desc": "the description",
+          "meta": "INPUT",
+          "type": "numbers",
           "default": null
         }
       ],
@@ -127,7 +133,7 @@ pub fn main() !void {
     }
 
     if (!zlap.isSubcmdActive("init")) {
-        std.debug.print("{s}\n", .{zlap.help_msg});
+        std.debug.print("Other subcommand was found. Quitting...\n", .{});
         return;
     }
 

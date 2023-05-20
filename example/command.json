@@ -32,9 +32,15 @@
       "desc": "An init",
       "args": [
         {
-          "desc": "print this argument as a string",
+          "desc": null,
           "meta": "PRINT",
           "type": "string",
+          "default": null
+        },
+        {
+          "desc": "the description",
+          "meta": "INPUT",
+          "type": "numbers",
           "default": null
         }
       ],
