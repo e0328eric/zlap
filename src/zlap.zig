@@ -618,7 +618,11 @@ pub const Zlap = struct {
             flags = &subcmd.flags;
         } else {
             is_main_help = true;
-            try writer.print("Usage: {s} [subcommands] [flags]", .{self.program_name});
+            if (self.subcommands.count() > 0) {
+                try writer.print("Usage: {s} [subcommands] [flags]", .{self.program_name});
+            } else {
+                try writer.print("Usage: {s} [flags]", .{self.program_name});
+            }
 
             args = &self.main_args;
             flags = &self.main_flags;
