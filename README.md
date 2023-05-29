@@ -161,4 +161,4 @@ pub fn main() !void {
 
 # Actual Usage of this Library
 - [tavol](https://github.com/e0328eric/tavol): Simple AES-encryption/decryption for files.
-- [xilo-zig](https://github.com/e0328eric/xilo-zig): a simple replacement of `rm` command. (not actively maintained)
+- [xilo](https://github.com/e0328eric/xilo): a simple replacement of `rm` command.
