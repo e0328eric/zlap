@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     const version = std.builtin.Version{
         .major = 0,
-        .minor = 2,
+        .minor = 3,
         .patch = 0,
     };
 
