@@ -175,7 +175,7 @@ pub const Subcmd = struct {
 
 // Global Variables
 var raw_args: [][:0]u8 = undefined;
-var zlap_json: ZlapJson = undefined;
+var zlap_json: json.Parsed(ZlapJson) = undefined;
 
 const subcmd_capacity: usize = 16;
 const arguments_capacity: usize = 64;
@@ -201,12 +201,12 @@ pub const Zlap = struct {
         zlap_json = json.parseFromSlice(ZlapJson, allocator, command_json, .{}) catch {
             return error.JsonParseFailed;
         };
-        errdefer json.parseFree(ZlapJson, allocator, zlap_json);
+        errdefer zlap_json.deinit();
 
         var zlap: Self = undefined;
         zlap.allocator = allocator;
-        zlap.program_name = zlap_json.name;
-        zlap.program_desc = zlap_json.desc;
+        zlap.program_name = zlap_json.value.name;
+        zlap.program_desc = zlap_json.value.desc;
         zlap.main_args_idx = 0;
         zlap.short_arg_map = [_]?[]const u8{null} ** 256;
         zlap.active_subcmd = null;
@@ -274,7 +274,7 @@ pub const Zlap = struct {
         self.subcommands.deinit();
         self.freeHelpMessage(self.help_msg);
 
-        json.parseFree(ZlapJson, self.allocator, zlap_json);
+        zlap_json.deinit();
         process.argsFree(self.allocator, raw_args);
     }
 
@@ -286,7 +286,7 @@ pub const Zlap = struct {
     }
 
     fn initFields(self: *Self) ZlapError!void {
-        for (zlap_json.args) |arg_json| {
+        for (zlap_json.value.args) |arg_json| {
             const value = try makeValue(self.allocator, arg_json);
             errdefer value.deinit();
 
@@ -311,7 +311,7 @@ pub const Zlap = struct {
         self.short_arg_map[@intCast(usize, 'h')] = "help";
 
         var short_name_for_hash = [2]u8{ 0, ONLY_SHORT_HASH_SUFFIX };
-        for (zlap_json.flags) |flag_json| {
+        for (zlap_json.value.flags) |flag_json| {
             const value = try makeValue(self.allocator, flag_json);
             errdefer value.deinit();
 
@@ -342,7 +342,7 @@ pub const Zlap = struct {
                 long_name_ptr.* = flag_json.long;
             }
         }
-        for (zlap_json.subcmds) |subcmd_json| {
+        for (zlap_json.value.subcmds) |subcmd_json| {
             if (self.subcommands.get(subcmd_json.name) != null) return error.SubcommandConflicted;
 
             var args = try ArrayList(Arg).initCapacity(self.allocator, arguments_capacity);
@@ -630,7 +630,7 @@ pub const Zlap = struct {
 
         var padding: usize = 0;
         for (args.items) |arg| {
-            padding = math.max(padding, arg.meta.len);
+            padding = @max(padding, arg.meta.len);
             try writer.print(" {s}", .{arg.meta});
             if (arg.value.isPlural()) {
                 try writer.print("...", .{});
@@ -641,8 +641,8 @@ pub const Zlap = struct {
 
         var flags_iter = flags.valueIterator();
         while (flags_iter.next()) |flag| {
-            const flag_long_len = math.max((flag.long orelse "").len, 4);
-            padding = math.max(padding, flag_long_len);
+            const flag_long_len = @max((flag.long orelse "").len, 4);
+            padding = @max(padding, flag_long_len);
         }
 
         try writer.print("Arguments:\n", .{});
@@ -691,8 +691,8 @@ pub const Zlap = struct {
 
             padding = 0;
             while (subcmd_iter.next()) |subcmd| {
-                const subcmd_len = math.max(subcmd.name.len, 4);
-                padding = math.max(padding, subcmd_len);
+                const subcmd_len = @max(subcmd.name.len, 4);
+                padding = @max(padding, subcmd_len);
             }
 
             subcmd_iter = self.subcommands.valueIterator();
