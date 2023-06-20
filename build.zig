@@ -4,10 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const version = std.builtin.Version{
+    const version = std.SemanticVersion{
         .major = 0,
         .minor = 3,
-        .patch = 0,
+        .patch = 1,
     };
 
     const lib = b.addStaticLibrary(.{
