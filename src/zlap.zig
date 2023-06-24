@@ -645,6 +645,14 @@ pub const Zlap = struct {
             padding = @max(padding, flag_long_len);
         }
 
+        if (is_main_help and self.subcommands.count() > 0) {
+            var subcmd_iter = self.subcommands.valueIterator();
+            while (subcmd_iter.next()) |subcmd| {
+                const subcmd_len = @max(subcmd.name.len, 4);
+                padding = @max(padding, subcmd_len);
+            }
+        }
+
         try writer.print("Arguments:\n", .{});
         for (args.items) |arg| {
             try writer.print("    {s}", .{arg.meta});
@@ -688,17 +696,9 @@ pub const Zlap = struct {
         if (is_main_help and self.subcommands.count() > 0) {
             try writer.print("\nSubcommands:\n", .{});
             var subcmd_iter = self.subcommands.valueIterator();
-
-            padding = 0;
-            while (subcmd_iter.next()) |subcmd| {
-                const subcmd_len = @max(subcmd.name.len, 4);
-                padding = @max(padding, subcmd_len);
-            }
-
-            subcmd_iter = self.subcommands.valueIterator();
             while (subcmd_iter.next()) |subcmd| {
                 try writer.print("    {s}", .{subcmd.name});
-                try writer.writeByteNTimes(' ', padding - subcmd.name.len);
+                try writer.writeByteNTimes(' ', padding - subcmd.name.len + 2);
                 try writer.print("        {?s}\n", .{subcmd.desc});
             }
         }
