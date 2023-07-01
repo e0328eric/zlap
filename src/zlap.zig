@@ -308,7 +308,7 @@ pub const Zlap = struct {
                 .value = .{ .bool = false },
             },
         );
-        self.short_arg_map[@intCast(usize, 'h')] = "help";
+        self.short_arg_map[@intCast('h')] = "help";
 
         var short_name_for_hash = [2]u8{ 0, ONLY_SHORT_HASH_SUFFIX };
         for (zlap_json.value.flags) |flag_json| {
@@ -335,7 +335,7 @@ pub const Zlap = struct {
             );
 
             if (short_name) |sn| {
-                const long_name_ptr = &self.short_arg_map[@intCast(usize, sn)];
+                const long_name_ptr = &self.short_arg_map[@as(usize, @intCast(sn))];
                 if (long_name_ptr.* != null and long_name_ptr.*.?.len > 0) {
                     return error.ShortFlagNameAlreadyExists;
                 }
@@ -385,7 +385,7 @@ pub const Zlap = struct {
                     .value = .{ .bool = false },
                 },
             );
-            short_arg_map[@intCast(usize, 'h')] = "help";
+            short_arg_map[@as(usize, @intCast('h'))] = "help";
 
             for (subcmd_json.flags) |flag_json| {
                 const value = try makeValue(self.allocator, flag_json);
@@ -411,7 +411,7 @@ pub const Zlap = struct {
                 );
 
                 if (short_name) |sn| {
-                    const long_name_ptr = &short_arg_map[@intCast(usize, sn)];
+                    const long_name_ptr = &short_arg_map[@as(usize, @intCast(sn))];
                     if (long_name_ptr.* != null and long_name_ptr.*.?.len > 0) {
                         return error.ShortFlagNameAlreadyExists;
                     }
