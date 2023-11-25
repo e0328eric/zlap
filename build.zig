@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const version = std.SemanticVersion{
         .major = 0,
         .minor = 3,
-        .patch = 1,
+        .patch = 4,
     };
 
     const lib = b.addStaticLibrary(.{

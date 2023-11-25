@@ -489,7 +489,7 @@ pub const Zlap = struct {
         idx: *usize,
         name: []const u8,
     ) ZlapError!void {
-        var flag_ptr: *Flag =
+        const flag_ptr: *Flag =
             if (maybe_subcmd) |subcmd|
             subcmd.flags.getPtr(name) orelse return error.CannotFindFlag
         else blk: {
