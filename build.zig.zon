@@ -1,0 +1,5 @@
+.{
+    .name = "zlap",
+    .version = "0.3.5",
+    .paths = .{""},
+}
