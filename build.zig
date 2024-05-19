@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const min_zig_string = "0.12.0-dev.2058+04ac028a2";
+const min_zig_string = "0.13.0-dev.211+6a65561e3";
 
 // NOTE: This code came from
 // https://github.com/zigtools/zls/blob/master/build.zig.
@@ -24,12 +24,12 @@ pub fn build(b: *Build) void {
     const version = std.SemanticVersion{
         .major = 0,
         .minor = 3,
-        .patch = 5,
+        .patch = 7,
     };
 
     const lib = b.addStaticLibrary(.{
         .name = "zlap",
-        .root_source_file = .{ .path = "src/zlap.zig" },
+        .root_source_file = b.path("src/zlap.zig"),
         .target = target,
         .optimize = optimize,
         .version = version,
@@ -37,7 +37,7 @@ pub fn build(b: *Build) void {
     b.installArtifact(lib);
 
     const main_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/zlap.zig" },
+        .root_source_file = b.path("src/zlap.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -46,12 +46,12 @@ pub fn build(b: *Build) void {
     test_step.dependOn(&main_tests.step);
 
     const zlap_mod = b.addModule("zlap", .{
-        .root_source_file = .{ .path = "src/zlap.zig" },
+        .root_source_file = b.path("src/zlap.zig"),
     });
 
     const example_exe = b.addExecutable(.{
         .name = "zlap-example",
-        .root_source_file = .{ .path = "example/main.zig" },
+        .root_source_file = b.path("example/main.zig"),
         .target = target,
         .optimize = optimize,
         .version = version,
