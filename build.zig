@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const min_zig_string = "0.13.0-dev.211+6a65561e3";
+const min_zig_string = "0.13.0";
 
 // NOTE: This code came from
 // https://github.com/zigtools/zls/blob/master/build.zig.
