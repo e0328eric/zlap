@@ -153,13 +153,16 @@ pub const Flag = struct {
 pub const Subcmd = struct {
     name: []const u8,
     desc: ?[]const u8,
-    args: ArrayList(Arg),
-    args_idx: usize,
+    args: StringHashMap(*const Arg),
     flags: StringHashMap(Flag),
+    args_raw: ArrayList(Arg),
+    args_idx: usize,
     short_arg_map: [256]?[]const u8,
 
     fn deinit(self: *@This()) void {
-        for (self.args.items) |arg| {
+        self.args.deinit();
+
+        for (self.args_raw.items) |arg| {
             arg.deinit();
         }
 
@@ -168,13 +171,13 @@ pub const Subcmd = struct {
             flag.deinit();
         }
 
-        self.args.deinit();
+        self.args_raw.deinit();
         self.flags.deinit();
     }
 };
 
 // Global Variables
-var raw_args: [][:0]u8 = undefined;
+var raw_argv: [][:0]u8 = undefined;
 var zlap_json: json.Parsed(ZlapJson) = undefined;
 
 const subcmd_capacity: usize = 16;
@@ -186,9 +189,10 @@ pub const Zlap = struct {
     allocator: Allocator,
     program_name: []const u8,
     program_desc: ?[]const u8,
-    main_args: ArrayList(Arg),
-    main_args_idx: usize,
+    main_args: StringHashMap(*const Arg),
     main_flags: StringHashMap(Flag),
+    main_args_raw: ArrayList(Arg),
+    main_args_idx: usize,
     short_arg_map: [256]?[]const u8,
     subcommands: StringHashMap(Subcmd),
     active_subcmd: ?*Subcmd,
@@ -212,12 +216,12 @@ pub const Zlap = struct {
         zlap.active_subcmd = null;
         zlap.is_help = false;
 
-        zlap.main_args = try ArrayList(Arg).initCapacity(allocator, arguments_capacity);
+        zlap.main_args_raw = try ArrayList(Arg).initCapacity(allocator, arguments_capacity);
         errdefer {
-            for (zlap.main_args.items) |arg| {
+            for (zlap.main_args_raw.items) |arg| {
                 arg.deinit();
             }
-            zlap.main_args.deinit();
+            zlap.main_args_raw.deinit();
         }
 
         zlap.main_flags = StringHashMap(Flag).init(allocator);
@@ -244,18 +248,27 @@ pub const Zlap = struct {
         try zlap.initFields();
 
         // Parsing the command line argument
-        raw_args = try process.argsAlloc(allocator);
-        errdefer process.argsFree(allocator, raw_args);
+        raw_argv = try process.argsAlloc(allocator);
+        errdefer process.argsFree(allocator, raw_argv);
         try zlap.parseCommandlineArguments();
 
         zlap.help_msg = try zlap.makeHelpMessage();
         errdefer zlap.freeHelpMessage(zlap.help_msg);
 
+        zlap.main_args = StringHashMap(*const Arg).init(allocator);
+        errdefer zlap.main_args.deinit();
+
+        for (zlap.main_args_raw.items) |*arg| {
+            try zlap.main_args.put(arg.meta, arg);
+        }
+
         return zlap;
     }
 
     pub fn deinit(self: *Self) void {
-        for (self.main_args.items) |arg| {
+        self.main_args.deinit();
+
+        for (self.main_args_raw.items) |arg| {
             arg.deinit();
         }
 
@@ -269,13 +282,13 @@ pub const Zlap = struct {
             subcmd.deinit();
         }
 
-        self.main_args.deinit();
+        self.main_args_raw.deinit();
         self.main_flags.deinit();
         self.subcommands.deinit();
         self.freeHelpMessage(self.help_msg);
 
         zlap_json.deinit();
-        process.argsFree(self.allocator, raw_args);
+        process.argsFree(self.allocator, raw_argv);
     }
 
     pub fn isSubcmdActive(self: *const Self, name: ?[]const u8) bool {
@@ -290,7 +303,7 @@ pub const Zlap = struct {
             const value = try makeValue(self.allocator, arg_json);
             errdefer value.deinit();
 
-            try self.main_args.append(
+            try self.main_args_raw.append(
                 .{
                     .meta = arg_json.meta,
                     .desc = arg_json.desc,
@@ -345,12 +358,12 @@ pub const Zlap = struct {
         for (zlap_json.value.subcmds) |subcmd_json| {
             if (self.subcommands.get(subcmd_json.name) != null) return error.SubcommandConflicted;
 
-            var args = try ArrayList(Arg).initCapacity(self.allocator, arguments_capacity);
+            var args_raw = try ArrayList(Arg).initCapacity(self.allocator, arguments_capacity);
             errdefer {
-                for (args.items) |arg| {
+                for (args_raw.items) |arg| {
                     arg.deinit();
                 }
-                args.deinit();
+                args_raw.deinit();
             }
             var flags = StringHashMap(Flag).init(self.allocator);
             errdefer {
@@ -367,7 +380,7 @@ pub const Zlap = struct {
                 const value = try makeValue(self.allocator, arg_json);
                 errdefer value.deinit();
 
-                try args.append(
+                try args_raw.append(
                     .{
                         .meta = arg_json.meta,
                         .desc = arg_json.desc,
@@ -419,12 +432,20 @@ pub const Zlap = struct {
                 }
             }
 
+            var args = StringHashMap(*const Arg).init(self.allocator);
+            errdefer args.deinit();
+
+            for (args_raw.items) |*arg| {
+                try args.put(arg.meta, arg);
+            }
+
             try self.subcommands.put(subcmd_json.name, .{
                 .name = subcmd_json.name,
                 .desc = subcmd_json.desc,
                 .args = args,
-                .args_idx = 0,
                 .flags = flags,
+                .args_raw = args_raw,
+                .args_idx = 0,
                 .short_arg_map = short_arg_map,
             });
         }
@@ -432,8 +453,8 @@ pub const Zlap = struct {
 
     fn parseCommandlineArguments(self: *Self) ZlapError!void {
         var idx: usize = 1;
-        while (idx < raw_args.len) : (idx += 1) {
-            const parsed_command = ParsedCommandName.parseCommandName(raw_args[idx]);
+        while (idx < raw_argv.len) : (idx += 1) {
+            const parsed_command = ParsedCommandName.parseCommandName(raw_argv[idx]);
             switch (parsed_command) {
                 .long => |name| try self.parseLongFlag(null, &idx, name),
                 .short => |name| try self.parseShortFlag(null, &idx, name),
@@ -461,8 +482,8 @@ pub const Zlap = struct {
                 self.subcommands.getPtr(subcmd_name) orelse return error.InvalidSubcommand;
             idx.* += 1;
 
-            while (idx.* < raw_args.len) : (idx.* += 1) {
-                const parsed_flag = ParsedCommandName.parseCommandName(raw_args[idx.*]);
+            while (idx.* < raw_argv.len) : (idx.* += 1) {
+                const parsed_flag = ParsedCommandName.parseCommandName(raw_argv[idx.*]);
                 switch (parsed_flag) {
                     .long => |name| try self.parseLongFlag(self.active_subcmd, idx, name),
                     .short => |name| try self.parseShortFlag(self.active_subcmd, idx, name),
@@ -472,12 +493,12 @@ pub const Zlap = struct {
         } else {
             idx.* -|= 1;
             if (maybe_subcmd) |subcmd| {
-                if (subcmd.args_idx >= subcmd.args.items.len) return error.ArgumentOverflowed;
-                try parseValue(false, idx, &subcmd.args.items[subcmd.args_idx], null, null);
+                if (subcmd.args_idx >= subcmd.args_raw.items.len) return error.ArgumentOverflowed;
+                try parseValue(false, idx, &subcmd.args_raw.items[subcmd.args_idx], null, null);
                 subcmd.args_idx += 1;
             } else {
-                if (self.main_args_idx >= self.main_args.items.len) return error.ArgumentOverflowed;
-                try parseValue(false, idx, &self.main_args.items[self.main_args_idx], null, null);
+                if (self.main_args_idx >= self.main_args_raw.items.len) return error.ArgumentOverflowed;
+                try parseValue(false, idx, &self.main_args_raw.items[self.main_args_idx], null, null);
                 self.main_args_idx += 1;
             }
         }
@@ -558,19 +579,19 @@ pub const Zlap = struct {
         switch (ptr.value) {
             .bool => |*val| val.* = !val.*,
             .number => |*val| {
-                flag_name = ParsedCommandName.parseCommandName(raw_args[idx.*]);
+                flag_name = ParsedCommandName.parseCommandName(raw_argv[idx.*]);
                 if (flag_name != .normal) return error.FlagValueNotFound;
                 val.* = try fmt.parseInt(i64, flag_name.normal, 0);
             },
             .string => |*val| {
-                flag_name = ParsedCommandName.parseCommandName(raw_args[idx.*]);
+                flag_name = ParsedCommandName.parseCommandName(raw_argv[idx.*]);
                 if (flag_name != .normal) return error.FlagValueNotFound;
                 val.* = flag_name.normal;
             },
             .bools => |*val| {
                 while (blk: {
-                    if (idx.* >= raw_args.len) break :blk false;
-                    flag_name = ParsedCommandName.parseCommandName(raw_args[idx.*]);
+                    if (idx.* >= raw_argv.len) break :blk false;
+                    flag_name = ParsedCommandName.parseCommandName(raw_argv[idx.*]);
                     break :blk flag_name == .normal;
                 }) : (idx.* += 1) {
                     try val.*.append(try isTruthy(flag_name.normal));
@@ -579,8 +600,8 @@ pub const Zlap = struct {
             },
             .numbers => |*val| {
                 while (blk: {
-                    if (idx.* >= raw_args.len) break :blk false;
-                    flag_name = ParsedCommandName.parseCommandName(raw_args[idx.*]);
+                    if (idx.* >= raw_argv.len) break :blk false;
+                    flag_name = ParsedCommandName.parseCommandName(raw_argv[idx.*]);
                     break :blk flag_name == .normal;
                 }) : (idx.* += 1) {
                     try val.*.append(try fmt.parseInt(i64, flag_name.normal, 0));
@@ -589,8 +610,8 @@ pub const Zlap = struct {
             },
             .strings => |*val| {
                 while (blk: {
-                    if (idx.* >= raw_args.len) break :blk false;
-                    flag_name = ParsedCommandName.parseCommandName(raw_args[idx.*]);
+                    if (idx.* >= raw_argv.len) break :blk false;
+                    flag_name = ParsedCommandName.parseCommandName(raw_argv[idx.*]);
                     break :blk flag_name == .normal;
                 }) : (idx.* += 1) {
                     try val.*.append(flag_name.normal);
@@ -614,7 +635,7 @@ pub const Zlap = struct {
         if (self.active_subcmd) |subcmd| {
             try writer.print("Usage: {s} {s} [flags]", .{ self.program_name, subcmd.name });
 
-            args = &subcmd.args;
+            args = &subcmd.args_raw;
             flags = &subcmd.flags;
         } else {
             is_main_help = true;
@@ -624,7 +645,7 @@ pub const Zlap = struct {
                 try writer.print("Usage: {s} [flags]", .{self.program_name});
             }
 
-            args = &self.main_args;
+            args = &self.main_args_raw;
             flags = &self.main_flags;
         }
 

@@ -26,6 +26,8 @@ pub fn main() !void {
     const bar_flag = subcmd.flags.get("bar") orelse return;
     const baz_flag = subcmd.flags.get("baz") orelse return;
 
+    std.debug.print("{s}\n", .{subcmd.args.get("PRINT").?.value.string});
+
     for (foo_flag.value.strings.items) |string| {
         std.debug.print("<{s}>\n", .{string});
     }
