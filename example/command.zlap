@@ -1,0 +1,79 @@
+{
+    #main;
+    #name: zlap-example;
+    #desc: An example for zlap library;
+
+    #arg;
+    desc: print this argument as a string;
+    meta: PRINT;
+    type: string;
+    default:;
+
+    #arg;
+    desc: print this argument as a number;
+    meta: FOO;
+    type: number;
+    default:;
+
+    #flag;
+    long: conti;
+    short: c;
+    desc: Print this string [conti];
+    type: bool;
+    default: false;
+}
+{
+    #name: init;
+    #desc: An init;
+
+    #arg;
+    desc:;
+    meta:PRINT;
+    type:string;
+    default:;
+
+    #arg;
+    desc:the description;
+    meta:INPUT;
+    type:numbers;
+    default:;
+
+    #flag;
+    long:;
+    short: c;
+    desc: Print this string (c);
+    type: bool;
+    default: false;
+
+    #flag;
+    long: foo;
+    short: f;
+    desc: Print this string (foo);
+    type: strings;
+    default: print THIS!;
+
+    #flag;
+    long: bar;
+    short:;
+    desc: Print this string (bar);
+    type: bool;
+    default: true;
+
+    #flag;
+    long: baz;
+    short: B;
+    desc: Print this string (baz);
+    type: number;
+    default: 123;
+}
+{
+    #name: run;
+    #desc: An run;
+
+    #arg;
+    desc: print this argument as a string;
+    meta: PRINT;
+    type: string;
+    default:;
+}
+

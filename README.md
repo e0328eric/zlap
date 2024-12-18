@@ -1,5 +1,5 @@
 # zlap
-Command line argument parser for zig using JSON file.
+Command line argument parser for zig
 
 # Features
 - short flag support: `-a` for instance.
@@ -10,105 +10,91 @@ Command line argument parser for zig using JSON file.
   two values `foo.zig` and `bar.zig`.
 
 # Example
-This library uses JSON file to define the command line parser spec.
+This library uses personal spec to define the command line parser.
 Following code below is in the `example` folder:
-```json
+```
 {
-  "name": "zlap-example",
-  "desc": "An example for zlap library",
+    #main;
+    #name: zlap-example;
+    #desc: An example for zlap library;
 
-  "args": [
-    {
-      "desc": "print this argument as a string",
-      "meta": "PRINT",
-      "type": "string",
-      "default": null
-    },
-    {
-      "desc": "print this argument as a number",
-      "meta": "FOO",
-      "type": "number",
-      "default": null
-    }
-  ],
-  "flags": [
-    {
-      "long": "conti",
-      "short": "c",
-      "desc": "Print this string (conti)",
-      "type": "bool",
-      "default": "false"
-    }
-  ],
+    #arg;
+    desc: print this argument as a string;
+    meta: PRINT;
+    type: string;
+    default:;
 
-  "subcmds": [
-    {
-      "name": "init",
-      "desc": "An init",
-      "args": [
-        {
-          "desc": null,
-          "meta": "PRINT",
-          "type": "string",
-          "default": null
-        },
-        {
-          "desc": "the description",
-          "meta": "INPUT",
-          "type": "numbers",
-          "default": null
-        }
-      ],
-      "flags": [
-        {
-          "long": null,
-          "short": "c",
-          "desc": "Print this string (c)",
-          "type": "bool",
-          "default": "false"
-        },
-        {
-          "long": "foo",
-          "short": "f",
-          "desc": "Print this string (foo)",
-          "type": "strings",
-          "default": "print THIS!"
-        },
-        {
-          "long": "bar",
-          "short": null,
-          "desc": "Print this string (bar)",
-          "type": "bool",
-          "default": "true"
-        },
-        {
-          "long": "baz",
-          "short": "B",
-          "desc": "Print this string (baz)",
-          "type": "number",
-          "default": "123"
-        }
-      ]
-    },
-    {
-      "name": "run",
-      "desc": "An run",
-      "args": [
-        {
-          "desc": "print this argument as a string",
-          "meta": "PRINT",
-          "type": "string",
-          "default": null
-        }
-      ],
-      "flags": []
-    }
-  ]
+    #arg;
+    desc: print this argument as a number;
+    meta: FOO;
+    type: number;
+    default:;
+
+    #flag;
+    long: conti;
+    short: c;
+    desc: Print this string [conti];
+    type: bool;
+    default: false;
+}
+{
+    #name: init;
+    #desc: An init;
+
+    #arg;
+    desc:;
+    meta:PRINT;
+    type:string;
+    default:;
+
+    #arg;
+    desc:the description;
+    meta:INPUT;
+    type:numbers;
+    default:;
+
+    #flag;
+    long:;
+    short: c;
+    desc: Print this string (c);
+    type: bool;
+    default: false;
+
+    #flag;
+    long: foo;
+    short: f;
+    desc: Print this string (foo);
+    type: strings;
+    default: print THIS!;
+
+    #flag;
+    long: bar;
+    short:;
+    desc: Print this string (bar);
+    type: bool;
+    default: true;
+
+    #flag;
+    long: baz;
+    short: B;
+    desc: Print this string (baz);
+    type: number;
+    default: 123;
+}
+{
+    #name: run;
+    #desc: An run;
+
+    #arg;
+    desc: print this argument as a string;
+    meta: PRINT;
+    type: string;
+    default:;
 }
 ```
 
 Now, inline this file into the main code using `@embedFile`. Later, if zig will support some
-concept like comptimeAllocator, we can parse JSON file at the compile-time.
+concept like comptimeAllocator, we can parse that file at the compile-time.
 So, I will leave the parameter of `command` of `Zlap.init` by comptime string.
 
 Every memory is released by calling `Zlap.deinit`. Thus do not deallocate any memories related to
@@ -122,9 +108,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const command = @embedFile("./command.json");
-
-    var zlap = try @import("zlap").Zlap.init(allocator, command);
+    var zlap = try @import("zlap").Zlap(@embedFile("./command.zlap")).init(allocator);
     defer zlap.deinit();
 
     if (zlap.is_help) {
@@ -143,7 +127,7 @@ pub fn main() !void {
     const bar_flag = subcmd.flags.get("bar") orelse return;
     const baz_flag = subcmd.flags.get("baz") orelse return;
 
-    std.debug.print("{s}\n", .{subcmd.args.get("PRINT").?.value.string});
+    std.debug.print("|{s}|\n", .{subcmd.args.get("PRINT").?.value.string});
 
     for (foo_flag.value.strings.items) |string| {
         std.debug.print("<{s}>\n", .{string});
@@ -160,6 +144,10 @@ pub fn main() !void {
     std.debug.print("flag --baz sets to {}\n", .{baz_flag.value.number});
 }
 ```
+
+# Note
+Before version 0.5.0, it uses JSON file to write a command line spec.
+However, after version 0.5.0, it uses custom one.
 
 # Actual Usage of this Library
 - [tavol](https://github.com/e0328eric/tavol): Simple AES-encryption/decryption for files.

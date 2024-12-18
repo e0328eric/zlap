@@ -5,9 +5,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const command = @embedFile("./command.json");
-
-    var zlap = try @import("zlap").Zlap.init(allocator, command);
+    var zlap = try @import("zlap").Zlap(@embedFile("./command.zlap")).init(allocator);
     defer zlap.deinit();
 
     if (zlap.is_help) {
@@ -26,7 +24,7 @@ pub fn main() !void {
     const bar_flag = subcmd.flags.get("bar") orelse return;
     const baz_flag = subcmd.flags.get("baz") orelse return;
 
-    std.debug.print("{s}\n", .{subcmd.args.get("PRINT").?.value.string});
+    std.debug.print("|{s}|\n", .{subcmd.args.get("PRINT").?.value.string});
 
     for (foo_flag.value.strings.items) |string| {
         std.debug.print("<{s}>\n", .{string});
