@@ -9,7 +9,13 @@ Command line argument parser for zig
   If the command line `--file foo.zig bar.zig` is given, then the parser parses `--file` takes
   two values `foo.zig` and `bar.zig`.
 
-# Example
+# How to use this?
+To include this package, run the below command
+```console
+$ zig fetch --save https://github.com/e0328eric/zlap/archive/refs/tags/v0.5.0.tar.gz
+```
+
+## Example
 This library uses personal spec to define the command line parser.
 Following code below is in the `example` folder:
 ```
