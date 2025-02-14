@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const MIN_ZIG = std.SemanticVersion.parse("0.14.0-dev.2509+0c457fa7e") catch unreachable;
+const MIN_ZIG = std.SemanticVersion.parse("0.14.0-dev.3213+53216d2f2") catch unreachable;
 
 // NOTE: This code came from
 // https://github.com/zigtools/zls/blob/master/build.zig.
@@ -20,7 +20,7 @@ pub fn build(b: *Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const version = std.SemanticVersion.parse("0.5.0") catch unreachable;
+    const version = std.SemanticVersion.parse("0.6.1") catch unreachable;
 
     const lib = b.addStaticLibrary(.{
         .name = "zlap",

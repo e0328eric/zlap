@@ -205,35 +205,35 @@ fn ZlapSubcmd(
                     .type = bool,
                     .is_comptime = true,
                     .alignment = @alignOf(bool),
-                    .default_value = @ptrCast(&is_main),
+                    .default_value_ptr = @ptrCast(&is_main),
                 },
                 Type.StructField{
                     .name = "name",
                     .type = []const u8,
                     .is_comptime = true,
                     .alignment = @alignOf([]const u8),
-                    .default_value = @ptrCast(&name),
+                    .default_value_ptr = @ptrCast(&name),
                 },
                 Type.StructField{
                     .name = "desc",
                     .type = []const u8,
                     .is_comptime = true,
                     .alignment = @alignOf([]const u8),
-                    .default_value = @ptrCast(&desc),
+                    .default_value_ptr = @ptrCast(&desc),
                 },
                 Type.StructField{
                     .name = "args",
                     .type = [args_num]ArgZlap,
                     .is_comptime = true,
                     .alignment = @alignOf([args_num]ArgZlap),
-                    .default_value = @ptrCast(&args),
+                    .default_value_ptr = @ptrCast(&args),
                 },
                 Type.StructField{
                     .name = "flags",
                     .type = [flags_num]FlagZlap,
                     .is_comptime = true,
                     .alignment = @alignOf([flags_num]FlagZlap),
-                    .default_value = @ptrCast(&flags),
+                    .default_value_ptr = @ptrCast(&flags),
                 },
             },
         } };
@@ -271,7 +271,7 @@ fn ZlapZlap(comptime cmd_text: []const u8) type {
                     .type = []const u8,
                     .is_comptime = true,
                     .alignment = @alignOf([]const u8),
-                    .default_value = @ptrCast(&subcmd.name),
+                    .default_value_ptr = @ptrCast(&subcmd.name),
                 }};
                 zlap_type.@"struct".fields = zlap_type.@"struct".fields ++
                     .{Type.StructField{
@@ -279,7 +279,7 @@ fn ZlapZlap(comptime cmd_text: []const u8) type {
                     .type = []const u8,
                     .is_comptime = true,
                     .alignment = @alignOf([]const u8),
-                    .default_value = @ptrCast(&subcmd.desc),
+                    .default_value_ptr = @ptrCast(&subcmd.desc),
                 }};
                 zlap_type.@"struct".fields = zlap_type.@"struct".fields ++
                     .{Type.StructField{
@@ -287,7 +287,7 @@ fn ZlapZlap(comptime cmd_text: []const u8) type {
                     .type = @TypeOf(subcmd),
                     .is_comptime = true,
                     .alignment = @alignOf(@TypeOf(subcmd)),
-                    .default_value = @ptrCast(&subcmd),
+                    .default_value_ptr = @ptrCast(&subcmd),
                 }};
             } else {
                 var name: [subcmd.name.len + 1:0]u8 = @splat(0);
@@ -298,7 +298,7 @@ fn ZlapZlap(comptime cmd_text: []const u8) type {
                     .type = @TypeOf(subcmd),
                     .is_comptime = true,
                     .alignment = @alignOf(@TypeOf(subcmd)),
-                    .default_value = @ptrCast(&subcmd),
+                    .default_value_ptr = @ptrCast(&subcmd),
                 }};
             }
         }
