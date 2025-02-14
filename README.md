@@ -12,7 +12,7 @@ Command line argument parser for zig
 # How to use this?
 To include this package, run the below command
 ```console
-$ zig fetch --save https://github.com/e0328eric/zlap/archive/refs/tags/v0.5.0.tar.gz
+$ zig fetch --save https://github.com/e0328eric/zlap/archive/refs/tags/v0.6.1.tar.gz
 ```
 
 ## Example
