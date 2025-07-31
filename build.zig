@@ -40,11 +40,11 @@ pub fn build(b: *Build) void {
 
     const example_exe = b.addExecutable(.{
         .name = "zlap-example",
+        .version = version,
         .root_module = b.createModule(.{
             .root_source_file = b.path("example/main.zig"),
             .target = target,
             .optimize = optimize,
-            .version = version,
         }),
     });
     example_exe.root_module.addImport("zlap", zlap_mod);
