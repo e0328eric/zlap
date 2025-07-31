@@ -20,13 +20,10 @@ pub fn build(b: *Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const version = std.SemanticVersion.parse("0.6.1") catch unreachable;
-
     const zlap_mod = b.addModule("zlap", .{
         .root_source_file = b.path("src/zlap.zig"),
         .target = target,
         .optimize = optimize,
-        .version = version,
     });
 
     const main_tests = b.addTest(.{
@@ -40,7 +37,6 @@ pub fn build(b: *Build) void {
 
     const example_exe = b.addExecutable(.{
         .name = "zlap-example",
-        .version = version,
         .root_module = b.createModule(.{
             .root_source_file = b.path("example/main.zig"),
             .target = target,
