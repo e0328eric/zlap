@@ -244,7 +244,7 @@ fn ZlapSubcmd(
 
 fn ZlapZlap(comptime cmd_text: []const u8) type {
     comptime {
-        @setEvalBranchQuota(50000);
+        @setEvalBranchQuota(100000);
 
         const metadata = zlapGetMetadata(cmd_text);
         var iter = mem.tokenizeScalar(u8, cmd_text, '{');
