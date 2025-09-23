@@ -242,9 +242,10 @@ fn ZlapSubcmd(
     }
 }
 
-fn ZlapZlap(comptime cmd_text: []const u8) type {
+fn ZlapZlap(comptime cmd_text: []const u8, comptime quota_num_: ?u32) type {
     comptime {
-        @setEvalBranchQuota(100000);
+        const quota_num = quota_num_ orelse 80000;
+        @setEvalBranchQuota(quota_num);
 
         const metadata = zlapGetMetadata(cmd_text);
         var iter = mem.tokenizeScalar(u8, cmd_text, '{');
@@ -412,7 +413,8 @@ pub const Subcmd = struct {
 var raw_argv: [][:0]u8 = undefined;
 // END Global Variables
 
-pub fn Zlap(comptime cmd_text: []const u8) type {
+/// if quota == null, then use the default value for @setEvalBranchQuota
+pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
     return struct {
         allocator: Allocator,
         program_name: []const u8,
@@ -428,7 +430,7 @@ pub fn Zlap(comptime cmd_text: []const u8) type {
         help_msg: []const u8,
 
         const Self = @This();
-        const zlap_zlap = ZlapZlap(cmd_text){};
+        const zlap_zlap = ZlapZlap(cmd_text, quota){};
 
         pub fn init(allocator: Allocator) !Self {
             var zlap: Self = undefined;

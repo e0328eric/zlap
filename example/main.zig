@@ -5,7 +5,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var zlap = try @import("zlap").Zlap(@embedFile("./command.zlap")).init(allocator);
+    var zlap = try @import("zlap").Zlap(@embedFile("./command.zlap"), null).init(allocator);
     defer zlap.deinit();
 
     if (zlap.is_help) {
