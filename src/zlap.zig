@@ -958,7 +958,10 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
 
             var flags_iter = flags.valueIterator();
             while (flags_iter.next()) |flag| {
-                const flag_long_len = @max((flag.long orelse "").len, 4);
+                const flag_long_len = if (flag.long) |flag_long|
+                    @max(flag_long.len, 4)
+                else
+                    4;
                 padding = @max(padding, flag_long_len);
             }
 
@@ -993,6 +996,8 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
 
             flags_iter = flags.valueIterator();
             while (flags_iter.next()) |flag| {
+                const flag_long_len = if (flag.long) |flag_long| flag_long.len else 0;
+
                 try msg.print(self.allocator, "    ", .{});
                 if (flag.short) |short| {
                     try msg.print(self.allocator, "-{c},", .{short});
@@ -1006,11 +1011,11 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
                         try msg.print(self.allocator, "   ", .{});
                     if (flag.value.isPlural()) {
                         try msg.print(self.allocator, "...", .{});
-                        for (0..padding - (flag.long orelse "").len + 1) |_| {
+                        for (0..padding - flag_long_len + 1) |_| {
                             try msg.append(self.allocator, ' ');
                         }
                     } else {
-                        for (0..padding - (flag.long orelse "").len + 4) |_| {
+                        for (0..padding - flag_long_len + 4) |_| {
                             try msg.append(self.allocator, ' ');
                         }
                     }
