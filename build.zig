@@ -1,7 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const MIN_ZIG = std.SemanticVersion.parse("0.15.1") catch unreachable;
+const MIN_ZIG_STRING = @import("build.zig.zon").minimal_zig_version;
+const MIN_ZIG = std.SemanticVersion.parse(MIN_ZIG_STRING) catch unreachable;
 
 // NOTE: This code came from
 // https://github.com/zigtools/zls/blob/master/build.zig.

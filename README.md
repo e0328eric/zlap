@@ -19,83 +19,23 @@ $ zig fetch --save https://github.com/e0328eric/zlap/archive/refs/tags/v0.6.1.ta
 This library uses personal spec to define the command line parser.
 Following code below is in the `example` folder:
 ```
-{
-    #main;
-    #name: zlap-example;
-    #desc: An example for zlap library;
-
-    #arg;
-    desc: print this argument as a string;
-    meta: PRINT;
-    type: string;
-    default:;
-
-    #arg;
-    desc: print this argument as a number;
-    meta: FOO;
-    type: number;
-    default:;
-
-    #flag;
-    long: conti;
-    short: c;
-    desc: Print this string [conti];
-    type: bool;
-    default: false;
+#@zlap-example | An example for zlap library {
+    *PRINT   : string  | print this argument as a string;
+    *FOO     : number  | print this argument as a number;
+    -conti,c := @false | print this string [conti];
 }
-{
-    #name: init;
-    #desc: An init;
 
-    #arg;
-    desc:;
-    meta:PRINT;
-    type:string;
-    default:;
-
-    #arg;
-    desc:the description;
-    meta:INPUT;
-    type:numbers;
-    default:;
-
-    #flag;
-    long:;
-    short: c;
-    desc: Print this string (c);
-    type: bool;
-    default: false;
-
-    #flag;
-    long: foo;
-    short: f;
-    desc: Print this string (foo);
-    type: strings;
-    default: print THIS!;
-
-    #flag;
-    long: bar;
-    short:;
-    desc: Print this string (bar);
-    type: bool;
-    default: true;
-
-    #flag;
-    long: baz;
-    short: B;
-    desc: Print this string (baz);
-    type: number;
-    default: 123;
+#init | An init {
+    *PRINT: string |;
+    *INPUT: numbers | the description;
+    -,c   := @false | print this string (c);
+    -foo,f :strings | print this string (foo);
+    -bar, := @true | print this string (bar);
+    -baz,B := 123 | print this string (baz);
 }
-{
-    #name: run;
-    #desc: An run;
 
-    #arg;
-    desc: print this argument as a string;
-    meta: PRINT;
-    type: string;
-    default:;
+#run | An run {
+    *PRINT: string | print this argument as a string;
 }
 ```
 

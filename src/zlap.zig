@@ -72,21 +72,29 @@ const ZlapMetadata = struct {
     flag_num: comptime_int = 0,
 };
 
-fn zlapGetMetadata(cmd_text: []const u8) ZlapMetadata {
+inline fn compileError(comptime format: []const u8, comptime args: anytype) noreturn {
+    @compileError(fmt.comptimePrint(format, args));
+}
+
+inline fn trimSpaces(str: []const u8) []const u8 {
+    return mem.trim(u8, str, " \t");
+}
+
+fn zlapGetMetadata(comptime cmd_text: []const u8, comptime quota_lim: ?u32) ZlapMetadata {
     comptime {
-        @setEvalBranchQuota(20000);
+        @setEvalBranchQuota(quota_lim orelse 20000);
         var zlap_metadata = ZlapMetadata{};
         var arg_num_tmp = 0;
         var flag_num_tmp = 0;
-        var stmt = mem.tokenizeAny(u8, cmd_text, ";\n\r}");
+        var stmt = mem.tokenizeAny(u8, cmd_text, ";\n\r{}");
         var line_num: usize = 0;
 
         while (stmt.next()) |raw_line| : (line_num += 1) {
-            const line = mem.trim(u8, raw_line, " \t");
+            const line = trimSpaces(raw_line);
             if (line.len == 0) continue;
 
             switch (line[0]) {
-                '{' => {
+                '#' => {
                     if (zlap_metadata.subcmd_num > 0) {
                         zlap_metadata.arg_num |= arg_num_tmp;
                         zlap_metadata.flag_num |= flag_num_tmp;
@@ -97,12 +105,12 @@ fn zlapGetMetadata(cmd_text: []const u8) ZlapMetadata {
                     arg_num_tmp = 0;
                     flag_num_tmp = 0;
                 },
-                '#' => if (mem.eql(u8, line[1..], "arg")) {
-                    arg_num_tmp += 1;
-                } else if (mem.eql(u8, line[1..], "flag")) {
-                    flag_num_tmp += 1;
-                } else continue,
-                else => continue,
+                '*' => arg_num_tmp += 1,
+                '-' => flag_num_tmp += 1,
+                else => |chr| compileError(
+                    "line should be started with either `#`, `*`, or `-`, but got `{c}`.",
+                    .{chr},
+                ),
             }
         } else {
             zlap_metadata.arg_num |= arg_num_tmp;
@@ -113,89 +121,175 @@ fn zlapGetMetadata(cmd_text: []const u8) ZlapMetadata {
     }
 }
 
-fn getArgNum(
+fn getMetadata(
     comptime metadata: ZlapMetadata,
     comptime idx: comptime_int,
+    comptime @"type": enum(u1) { arg, flag },
 ) comptime_int {
     comptime std.debug.assert(metadata.subcmd_num >= 1);
-    return metadata.arg_num >> (metadata.subcmd_num - idx - 1) * 8 & 0xFF;
+    const field = @tagName(@"type") ++ "_num";
+    return @field(metadata, field) >> (metadata.subcmd_num - idx - 1) * 8 & 0xFF;
 }
 
-fn getFlagNum(
-    comptime metadata: ZlapMetadata,
-    comptime idx: comptime_int,
-) comptime_int {
-    comptime std.debug.assert(metadata.subcmd_num >= 1);
-    return metadata.flag_num >> (metadata.subcmd_num - idx - 1) * 8 & 0xFF;
+fn parseSubcmdMetadata(comptime metadata: []const u8) struct {
+    name: []const u8,
+    desc: []const u8,
+    is_main: bool,
+} {
+    var iter = mem.splitScalar(u8, metadata, '|');
+    const name = blk: {
+        const tmp = iter.next() orelse compileError("there is no name in `{s}`", .{metadata});
+        break :blk trimSpaces(tmp);
+    };
+    const desc = blk: {
+        const tmp = iter.next() orelse "";
+        break :blk trimSpaces(tmp);
+    };
+    if (iter.rest().len != 0) compileError("`{s}` has more than two separators", .{metadata});
+
+    // name should be prefixed by `#` to check that the parser is well-functioning.
+    // Thus, valid name has at least two characters.
+    // In addition, if the name is like `#@zlap`, then the name itself is a program name
+    var is_main = false;
+    if (name.len < 2 or name[0] != '#') compileError("name `{s}` is not prefixed by `#`", .{name});
+    const real_name = if (name[1] == '@') blk: {
+        is_main = true;
+        break :blk name[2..]; // remove prefix `#@`
+    } else name[1..]; // remove prefix `#`
+
+    return .{ .name = real_name, .desc = desc, .is_main = is_main };
 }
 
-fn ZlapSubcmd(
-    comptime subcmd_text: []const u8,
+// prefix consists of
+// (arg or flag type) `:` (type of argument)? `=` (value)?
+// Here are some examples
+// *FILENAMES: strings
+// -emit_tex,e: bool = @false
+// -no_color,N := @false
+const ArgOrFlag = union(enum(u1)) { arg: ArgZlap, flag: FlagZlap };
+
+fn inferType(val: []const u8) []const u8 {
+    if (mem.eql(u8, val, "@true") or mem.eql(u8, val, "@false")) return "bool";
+    for (val) |c| if (!ascii.isDigit(c)) return "string";
+    return "number";
+}
+
+fn parseSubcmdPrefix(comptime prefix: []const u8) ArgOrFlag {
+    const arg_or_flag_str, const rest = blk: {
+        const idx = mem.indexOfScalar(u8, prefix, ':') orelse
+            compileError("there is no `:` character in `{s}`", .{prefix});
+        break :blk .{ trimSpaces(prefix[0..idx]), trimSpaces(prefix[idx + 1 ..]) };
+    };
+    var type_str, const val_str = if (mem.indexOfScalar(u8, rest, '=')) |idx|
+        .{ trimSpaces(rest[0..idx]), trimSpaces(rest[idx + 1 ..]) }
+    else
+        .{ rest, "" };
+
+    // parsing arg_or_flag_str
+    if (arg_or_flag_str.len < 2) compileError(
+        "`{s}` must have a name after prefix `*` or `-`",
+        .{arg_or_flag_str},
+    );
+    var arg_or_flag: ArgOrFlag = undefined;
+    switch (arg_or_flag_str[0]) {
+        '*' => arg_or_flag = .{ .arg = .{ .meta = arg_or_flag_str[1..] } },
+        // flag should have `,` character to separate long and short commands.
+        // spaces after `,` is not allowed. Hence,
+        // `-foo,f` is a valid syntax, but `-foo, f` is not.
+        '-' => {
+            const idx = mem.indexOfScalarPos(u8, arg_or_flag_str, 1, ',') orelse
+                compileError("there is no `,` character in `{s}`", .{arg_or_flag_str});
+            const long = arg_or_flag_str[1..idx];
+            const short = arg_or_flag_str[idx + 1 ..];
+            // notice that short argument must have a length at most 1
+            if (short.len > 1) compileError("`{s}` cannot be a short flag name", .{short});
+            arg_or_flag = .{ .flag = .{ .long = long, .short = short } };
+        },
+        else => compileError(
+            "`{s}` should start with `*` or `-`, but get `{c}`",
+            .{},
+        ),
+    }
+
+    // parsing type_str and val_str
+    // TODO: support array for val_str
+    if (type_str.len == 0) {
+        if (val_str.len == 0) compileError("`{s}` is invalid. specify type", .{prefix});
+        type_str = inferType(val_str);
+    } else if (val_str.len > 0) {
+        const infered_type = inferType(val_str);
+        if (!mem.eql(u8, type_str, infered_type))
+            compileError(
+                "`{s}` is the type `{s}, which is not `{s}`. Type mismatched",
+                .{ val_str, infered_type, type_str },
+            );
+    }
+
+    switch (arg_or_flag) {
+        inline else => |*tmp| {
+            tmp.type = type_str;
+            tmp.default = val_str;
+        },
+    }
+
+    return arg_or_flag;
+}
+
+fn ZlapSubcmdInner(
+    comptime subcmd_inner_text: []const u8,
     comptime metadata: ZlapMetadata,
     comptime idx: comptime_int,
+    comptime name: *const []const u8,
+    comptime desc: *const []const u8,
+    comptime is_main: *const bool,
+    comptime quota_lim: ?u32,
 ) type {
     comptime {
-        std.debug.assert(subcmd_text[subcmd_text.len - 1] == '}');
-
-        @setEvalBranchQuota(20000);
-        const args_num = getArgNum(metadata, idx);
-        const flags_num = getFlagNum(metadata, idx);
-        var stmt = mem.tokenizeAny(u8, subcmd_text, ";\n\r");
-        var type_to_read: enum { none, args, flags } = .none;
+        @setEvalBranchQuota(quota_lim orelse 20000);
+        const args_num = getMetadata(metadata, idx, .arg);
+        const flags_num = getMetadata(metadata, idx, .flag);
+        var stmts = mem.tokenizeAny(u8, subcmd_inner_text, ";\n\r");
         var args: [args_num]ArgZlap = @splat(ArgZlap{});
         var flags: [flags_num]FlagZlap = @splat(FlagZlap{});
-        var args_idx = -1;
-        var flags_idx = -1;
-        var name: []const u8 = "";
-        var desc: []const u8 = "";
-        var is_main: bool = false;
+        var args_idx = 0;
+        var flags_idx = 0;
 
-        while (stmt.next()) |raw_line| {
-            const line = mem.trim(u8, raw_line, " \t");
+        while (stmts.next()) |stmt| {
+            const line = trimSpaces(stmt);
             if (line.len == 0) continue;
 
-            switch (line[0]) {
-                '#' => if (mem.eql(u8, line[1..], "arg")) {
-                    type_to_read = .args;
+            var iter = mem.splitScalar(u8, line, '|');
+            const prefix_str = blk: {
+                const tmp = iter.next() orelse compileError(
+                    "there is no name in `{s}`",
+                    .{metadata},
+                );
+                break :blk trimSpaces(tmp);
+            };
+            const arg_flag_desc = blk: {
+                const tmp = iter.next() orelse "";
+                break :blk trimSpaces(tmp);
+            };
+            if (iter.rest().len != 0) compileError(
+                "`{s}` has more than two separators",
+                .{metadata},
+            );
+
+            switch (parseSubcmdPrefix(prefix_str)) {
+                .arg => |arg_zlap| {
+                    args[args_idx] = arg_zlap;
+                    args[args_idx].desc = arg_flag_desc;
                     args_idx += 1;
-                    continue;
-                } else if (mem.eql(u8, line[1..], "flag")) {
-                    type_to_read = .flags;
-                    flags_idx += 1;
-                    continue;
-                } else if (mem.eql(u8, line[1..], "main")) {
-                    is_main = true;
-                    continue;
-                } else {
-                    var dict = mem.tokenizeScalar(u8, line[1..], ':');
-                    const key = dict.next() orelse "";
-                    const value = mem.trim(u8, dict.next() orelse "", " \t");
-                    if (mem.eql(u8, key, "name")) {
-                        name = value;
-                    } else if (mem.eql(u8, key, "desc")) {
-                        desc = value;
-                    } else {
-                        @compileError(fmt.comptimePrint(
-                            "only `#name`, `#desc`, `#arg` and `#flag` are allowed, but got {s}",
-                            .{line},
-                        ));
-                    }
                 },
-                '}' => break, // NOTE: END OF THE SUBCOMMAND
-                else => {
-                    var dict = mem.tokenizeScalar(u8, line, ':');
-                    const key = dict.next() orelse "";
-                    const value = mem.trim(u8, dict.next() orelse "", " \t");
-                    switch (type_to_read) {
-                        .args => @field(args[args_idx], key) = value,
-                        .flags => @field(flags[flags_idx], key) = value,
-                        .none => @compileError("either `#arg` or `#flag` is used before"),
-                    }
+                .flag => |flag_zlap| {
+                    flags[flags_idx] = flag_zlap;
+                    flags[flags_idx].desc = arg_flag_desc;
+                    flags_idx += 1;
                 },
             }
         }
 
-        const subcmd_type: Type = .{ .@"struct" = Type.Struct{
+        const subcmd_inner_type: Type = .{ .@"struct" = Type.Struct{
             .layout = .auto,
             .is_tuple = false,
             .decls = &.{},
@@ -205,21 +299,21 @@ fn ZlapSubcmd(
                     .type = bool,
                     .is_comptime = true,
                     .alignment = @alignOf(bool),
-                    .default_value_ptr = @ptrCast(&is_main),
+                    .default_value_ptr = is_main,
                 },
                 Type.StructField{
                     .name = "name",
                     .type = []const u8,
                     .is_comptime = true,
                     .alignment = @alignOf([]const u8),
-                    .default_value_ptr = @ptrCast(&name),
+                    .default_value_ptr = @ptrCast(name),
                 },
                 Type.StructField{
                     .name = "desc",
                     .type = []const u8,
                     .is_comptime = true,
                     .alignment = @alignOf([]const u8),
-                    .default_value_ptr = @ptrCast(&desc),
+                    .default_value_ptr = @ptrCast(desc),
                 },
                 Type.StructField{
                     .name = "args",
@@ -238,17 +332,18 @@ fn ZlapSubcmd(
             },
         } };
 
-        return @Type(subcmd_type);
+        return @Type(subcmd_inner_type);
     }
 }
 
-fn ZlapZlap(comptime cmd_text: []const u8, comptime quota_num_: ?u32) type {
+fn ZlapZlap(
+    comptime cmd_text: []const u8,
+    comptime quota_lim: ?u32,
+) type {
     comptime {
-        const quota_num = quota_num_ orelse 80000;
-        @setEvalBranchQuota(quota_num);
+        @setEvalBranchQuota(quota_lim orelse 50000);
 
-        const metadata = zlapGetMetadata(cmd_text);
-        var iter = mem.tokenizeScalar(u8, cmd_text, '{');
+        const metadata = zlapGetMetadata(cmd_text, quota_lim);
         var zlap_type: Type = .{ .@"struct" = Type.Struct{
             .layout = .auto,
             .is_tuple = false,
@@ -256,55 +351,82 @@ fn ZlapZlap(comptime cmd_text: []const u8, comptime quota_num_: ?u32) type {
             .fields = &.{},
         } };
 
+        var rest = cmd_text;
         var idx = 0;
-        var double_main = 0;
+        var found_main = false;
+        while (rest.len > 0) : (idx += 1) {
+            const subcmd_metadata_str, const subcmd_inner_str = blk: {
+                const tmp_open = mem.indexOfScalarPos(u8, rest, 0, '{') orelse
+                    compileError("there is no `{` in `{s}`", .{rest});
+                const tmp_end = mem.indexOfScalarPos(u8, rest, tmp_open, '}') orelse
+                    compileError("there is no `}` in `{s}`", .{rest});
+                const output = .{
+                    trimSpaces(rest[0..tmp_open]),
+                    trimSpaces(rest[tmp_open + 1 .. tmp_end]),
+                };
+                rest = mem.trim(u8, rest[tmp_end + 1 ..], " \t\n\r");
+                break :blk output;
+            };
 
-        while (iter.next()) |subcmd_str| : (idx += 1) {
-            const subcmd_part = mem.trim(u8, subcmd_str, " \t\n\r");
-            const subcmd = ZlapSubcmd(subcmd_part, metadata, idx){};
-            if (subcmd.is_main) {
-                if (double_main > 1) @compileError("two `#main` subcommands found");
+            // parsing subcommand metadatas
+            const subcmd_metadata = parseSubcmdMetadata(subcmd_metadata_str);
+            const subcmd_inner = ZlapSubcmdInner(
+                subcmd_inner_str,
+                metadata,
+                idx,
+                &subcmd_metadata.name,
+                &subcmd_metadata.desc,
+                &subcmd_metadata.is_main,
+                quota_lim,
+            ){};
 
-                double_main += 1;
+            if (subcmd_metadata.is_main) {
+                if (found_main) @compileError("two `main` program names found");
+                found_main = true;
+
                 zlap_type.@"struct".fields = zlap_type.@"struct".fields ++
-                    .{Type.StructField{
-                        .name = "program_name",
-                        .type = []const u8,
-                        .is_comptime = true,
-                        .alignment = @alignOf([]const u8),
-                        .default_value_ptr = @ptrCast(&subcmd.name),
-                    }};
-                zlap_type.@"struct".fields = zlap_type.@"struct".fields ++
-                    .{Type.StructField{
-                        .name = "program_desc",
-                        .type = []const u8,
-                        .is_comptime = true,
-                        .alignment = @alignOf([]const u8),
-                        .default_value_ptr = @ptrCast(&subcmd.desc),
-                    }};
-                zlap_type.@"struct".fields = zlap_type.@"struct".fields ++
-                    .{Type.StructField{
-                        .name = "main",
-                        .type = @TypeOf(subcmd),
-                        .is_comptime = true,
-                        .alignment = @alignOf(@TypeOf(subcmd)),
-                        .default_value_ptr = @ptrCast(&subcmd),
-                    }};
+                    .{
+                        Type.StructField{
+                            .name = "program_name",
+                            .type = []const u8,
+                            .is_comptime = true,
+                            .alignment = @alignOf([]const u8),
+                            .default_value_ptr = @ptrCast(&subcmd_metadata.name),
+                        },
+                        Type.StructField{
+                            .name = "program_desc",
+                            .type = []const u8,
+                            .is_comptime = true,
+                            .alignment = @alignOf([]const u8),
+                            .default_value_ptr = @ptrCast(&subcmd_metadata.desc),
+                        },
+                        Type.StructField{
+                            .name = "main",
+                            .type = @TypeOf(subcmd_inner),
+                            .is_comptime = true,
+                            .alignment = @alignOf(@TypeOf(subcmd_inner)),
+                            .default_value_ptr = @ptrCast(&subcmd_inner),
+                        },
+                    };
             } else {
-                var name: [subcmd.name.len + 1:0]u8 = @splat(0);
-                @memcpy(name[0..subcmd.name.len], subcmd.name);
+                // The type of Type.StructField.name is [:0]const u8, however
+                // the one of subcmd_metadata.name is []const u8.
+                // For this reason, we need to make a new array called `name`
+                // having a sentinal value.
+                var name: [subcmd_metadata.name.len + 1:0]u8 = @splat(0);
+                @memcpy(name[0..subcmd_metadata.name.len], subcmd_metadata.name);
                 zlap_type.@"struct".fields = zlap_type.@"struct".fields ++
-                    .{Type.StructField{
-                        .name = &name,
-                        .type = @TypeOf(subcmd),
-                        .is_comptime = true,
-                        .alignment = @alignOf(@TypeOf(subcmd)),
-                        .default_value_ptr = @ptrCast(&subcmd),
-                    }};
+                    .{
+                        Type.StructField{
+                            .name = &name,
+                            .type = @TypeOf(subcmd_inner),
+                            .is_comptime = true,
+                            .alignment = @alignOf(@TypeOf(subcmd_inner)),
+                            .default_value_ptr = @ptrCast(&subcmd_inner),
+                        },
+                    };
             }
         }
-
-        if (double_main == 0) @compileError("no `#main` subcommand found");
 
         return @Type(zlap_type);
     }
@@ -1094,9 +1216,9 @@ fn makeValue(allocator: Allocator, zlap_data: anytype) ZlapError!Value {
 fn parseDefaultValue(comptime T: type, string: []const u8) ZlapError!T {
     switch (T) {
         bool => {
-            if (mem.eql(u8, string, "true"))
+            if (mem.eql(u8, string, "@true"))
                 return true
-            else if (mem.eql(u8, string, "false"))
+            else if (mem.eql(u8, string, "@false"))
                 return false
             else
                 return error.UnknownDefaultValueString;

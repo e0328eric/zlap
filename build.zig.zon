@@ -1,7 +1,8 @@
 .{
     .name = .zlap,
     .fingerprint = 0x48e8867a5c95826e,
-    .version = "0.8.1",
+    .minimal_zig_version = "0.15.2",
+    .version = "0.9.0",
     .paths = .{
         "build.zig",
         "build.zig.zon",
