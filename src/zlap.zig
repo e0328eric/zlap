@@ -170,6 +170,7 @@ const ArgOrFlag = union(enum(u1)) { arg: ArgZlap, flag: FlagZlap };
 
 fn inferType(val: []const u8) []const u8 {
     if (mem.eql(u8, val, "@true") or mem.eql(u8, val, "@false")) return "bool";
+    if (mem.eql(u8, val, "@null")) return "string";
     for (val) |c| if (!ascii.isDigit(c)) return "string";
     return "number";
 }
@@ -1224,7 +1225,12 @@ fn parseDefaultValue(comptime T: type, string: []const u8) ZlapError!T {
                 return error.UnknownDefaultValueString;
         },
         i64 => return fmt.parseInt(i64, string, 10),
-        []const u8 => return string,
+        []const u8 => {
+            if (mem.eql(u8, string, "@null"))
+                return ""
+            else
+                return string;
+        },
         else => @compileError("parseDefaultValue function does not support for a type " ++
             @typeName(T)),
     }
