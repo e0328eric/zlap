@@ -9,8 +9,8 @@ const process = std.process;
 
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
+const Attributes = std.builtin.Type.StructField.Attributes;
 const StringHashMap = std.StringHashMapUnmanaged;
-const Type = std.builtin.Type;
 
 const SUBCMD_CAPACITY: usize = 16;
 const ARGUMENTS_CAPACITY: usize = 64;
@@ -290,50 +290,51 @@ fn ZlapSubcmdInner(
             }
         }
 
-        const subcmd_inner_type: Type = .{ .@"struct" = Type.Struct{
-            .layout = .auto,
-            .is_tuple = false,
-            .decls = &.{},
-            .fields = &.{
-                Type.StructField{
-                    .name = "is_main",
-                    .type = bool,
-                    .is_comptime = true,
-                    .alignment = @alignOf(bool),
+        return @Struct(
+            .auto,
+            null,
+            &.{
+                "is_main",
+                "name",
+                "desc",
+                "args",
+                "flags",
+            },
+            &.{
+                bool,
+                []const u8,
+                []const u8,
+                [args_num]ArgZlap,
+                [flags_num]FlagZlap,
+            },
+            &.{
+                .{
+                    .@"comptime" = true,
+                    .@"align" = @alignOf(bool),
                     .default_value_ptr = is_main,
                 },
-                Type.StructField{
-                    .name = "name",
-                    .type = []const u8,
-                    .is_comptime = true,
-                    .alignment = @alignOf([]const u8),
+                .{
+                    .@"comptime" = true,
+                    .@"align" = @alignOf([]const u8),
                     .default_value_ptr = @ptrCast(name),
                 },
-                Type.StructField{
-                    .name = "desc",
-                    .type = []const u8,
-                    .is_comptime = true,
-                    .alignment = @alignOf([]const u8),
+                .{
+                    .@"comptime" = true,
+                    .@"align" = @alignOf([]const u8),
                     .default_value_ptr = @ptrCast(desc),
                 },
-                Type.StructField{
-                    .name = "args",
-                    .type = [args_num]ArgZlap,
-                    .is_comptime = true,
-                    .alignment = @alignOf([args_num]ArgZlap),
+                .{
+                    .@"comptime" = true,
+                    .@"align" = @alignOf([args_num]ArgZlap),
                     .default_value_ptr = @ptrCast(&args),
                 },
-                Type.StructField{
-                    .name = "flags",
-                    .type = [flags_num]FlagZlap,
-                    .is_comptime = true,
-                    .alignment = @alignOf([flags_num]FlagZlap),
+                .{
+                    .@"comptime" = true,
+                    .@"align" = @alignOf([flags_num]FlagZlap),
                     .default_value_ptr = @ptrCast(&flags),
                 },
             },
-        } };
-
-        return @Type(subcmd_inner_type);
+        );
     }
 }
 
@@ -341,16 +342,15 @@ fn ZlapZlap(
     comptime cmd_text: []const u8,
     comptime quota_lim: ?u32,
 ) type {
+    const DefaultValuePtr = ?*const anyopaque;
     comptime {
         @setEvalBranchQuota(quota_lim orelse 50000);
 
         const metadata = zlapGetMetadata(cmd_text, quota_lim);
-        var zlap_type: Type = .{ .@"struct" = Type.Struct{
-            .layout = .auto,
-            .is_tuple = false,
-            .decls = &.{},
-            .fields = &.{},
-        } };
+
+        var field_names: []const []const u8 = &.{};
+        var field_types: []const type = &.{};
+        var field_attrs: []const Attributes = &.{};
 
         var rest = cmd_text;
         var idx = 0;
@@ -385,51 +385,47 @@ fn ZlapZlap(
                 if (found_main) @compileError("two `main` program names found");
                 found_main = true;
 
-                zlap_type.@"struct".fields = zlap_type.@"struct".fields ++
-                    .{
-                        Type.StructField{
-                            .name = "program_name",
-                            .type = []const u8,
-                            .is_comptime = true,
-                            .alignment = @alignOf([]const u8),
-                            .default_value_ptr = @ptrCast(&subcmd_metadata.name),
-                        },
-                        Type.StructField{
-                            .name = "program_desc",
-                            .type = []const u8,
-                            .is_comptime = true,
-                            .alignment = @alignOf([]const u8),
-                            .default_value_ptr = @ptrCast(&subcmd_metadata.desc),
-                        },
-                        Type.StructField{
-                            .name = "main",
-                            .type = @TypeOf(subcmd_inner),
-                            .is_comptime = true,
-                            .alignment = @alignOf(@TypeOf(subcmd_inner)),
-                            .default_value_ptr = @ptrCast(&subcmd_inner),
-                        },
-                    };
+                field_names = field_names ++ .{
+                    "program_name",
+                    "program_desc",
+                    "main",
+                };
+                field_types = field_types ++ .{
+                    []const u8,
+                    []const u8,
+                    @TypeOf(subcmd_inner),
+                };
+                field_attrs = field_attrs ++ .{
+                    Attributes{
+                        .@"comptime" = true,
+                        .@"align" = @alignOf([]const u8),
+                        .default_value_ptr = @as(DefaultValuePtr, @ptrCast(&subcmd_metadata.name)),
+                    },
+                    Attributes{
+                        .@"comptime" = true,
+                        .@"align" = @alignOf([]const u8),
+                        .default_value_ptr = @as(DefaultValuePtr, @ptrCast(&subcmd_metadata.desc)),
+                    },
+                    Attributes{
+                        .@"comptime" = true,
+                        .@"align" = @alignOf(@TypeOf(subcmd_inner)),
+                        .default_value_ptr = @as(DefaultValuePtr, @ptrCast(&subcmd_inner)),
+                    },
+                };
             } else {
-                // The type of Type.StructField.name is [:0]const u8, however
-                // the one of subcmd_metadata.name is []const u8.
-                // For this reason, we need to make a new array called `name`
-                // having a sentinal value.
-                var name: [subcmd_metadata.name.len + 1:0]u8 = @splat(0);
-                @memcpy(name[0..subcmd_metadata.name.len], subcmd_metadata.name);
-                zlap_type.@"struct".fields = zlap_type.@"struct".fields ++
-                    .{
-                        Type.StructField{
-                            .name = &name,
-                            .type = @TypeOf(subcmd_inner),
-                            .is_comptime = true,
-                            .alignment = @alignOf(@TypeOf(subcmd_inner)),
-                            .default_value_ptr = @ptrCast(&subcmd_inner),
-                        },
-                    };
+                field_names = field_names ++ .{subcmd_metadata.name};
+                field_types = field_types ++ .{@TypeOf(subcmd_inner)};
+                field_attrs = field_attrs ++ .{
+                    Attributes{
+                        .@"comptime" = true,
+                        .@"align" = @alignOf(@TypeOf(subcmd_inner)),
+                        .default_value_ptr = @as(DefaultValuePtr, @ptrCast(&subcmd_inner)),
+                    },
+                };
             }
         }
 
-        return @Type(zlap_type);
+        return @Struct(.auto, null, field_names, @ptrCast(field_types), @ptrCast(field_attrs));
     }
 }
 
