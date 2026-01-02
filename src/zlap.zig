@@ -530,26 +530,29 @@ pub const Subcmd = struct {
 
 /// Print usage of zlap spec and raise a compile error.
 pub fn usage() void {
-    @compileLog(
-        \\          ===========================================================
-        \\          |          Zlap command line argument file spec           |
-        \\          ===========================================================
+    @compileError(
+        \\        ===========================================================
+        \\        |          Zlap command line argument file spec           |
+        \\        ===========================================================
         \\
-        \\  ==  Example zlap code
-        \\  #@zlap-example | An example for zlap library {
-        \\      *PRINT   : string  | print this argument as a string;
-        \\      *FOO     : number  | print this argument as a number;
-        \\      -conti,c := @false | print this string [conti];
-        \\  }
+        \\==  Example zlap code
+        \\#@zlap-example | An example for zlap library {
+        \\    *PRINT   : string     | print this argument as a string;
+        \\    *FOO     : number = 3 | print this argument as a number;
+        \\    -conti,c := @false    | print this string [conti];
+        \\}
         \\
-        \\  == Spec
-        \\  # : subcommand name, #@ : main program name
-        \\  * : argument name, -<long>,<short> : flag name (no space after `,` is not allowed)
-        \\  | : description
-        \\  == Types
-        \\  boolean, number, string, booleans, numbers, strings
-        \\  == Builtin Value
-        \\  @false, @true : boolean, @null : string
+        \\== Spec
+        \\# : subcommand name, #@ : main program name
+        \\*<name> : argument name,
+        \\-<long>,<short> : flag name (no space after `,` is not allowed)
+        \\| : description
+        \\
+        \\== Types
+        \\boolean, number, string, booleans, numbers, strings
+        \\
+        \\== Builtin Value
+        \\@false, @true : boolean, @null : string
     );
 }
 
