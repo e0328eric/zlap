@@ -200,8 +200,14 @@ fn parseSubcmdPrefix(comptime prefix: []const u8) ArgOrFlag {
         '-' => {
             const idx = mem.indexOfScalarPos(u8, arg_or_flag_str, 1, ',') orelse
                 compileError("there is no `,` character in `{s}`", .{arg_or_flag_str});
-            const long = arg_or_flag_str[1..idx];
             const short = arg_or_flag_str[idx + 1 ..];
+            const long = blk: {
+                const tmp = arg_or_flag_str[1..idx];
+                break :blk if (tmp.len == 0)
+                    fmt.comptimePrint("{s}{c}", .{ short, ONLY_SHORT_HASH_SUFFIX })
+                else
+                    tmp;
+            };
             // notice that short argument must have a length at most 1
             if (short.len > 1) compileError("`{s}` cannot be a short flag name", .{short});
             arg_or_flag = .{ .flag = .{ .long = long, .short = short } };
@@ -557,7 +563,7 @@ pub fn usage() void {
 }
 
 // Global Variables
-var raw_argv: [][:0]u8 = undefined;
+var raw_argv: []const [:0]const u8 = undefined;
 // END Global Variables
 
 // if quota == null, then use the default value for @setEvalBranchQuota
@@ -579,7 +585,7 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
         const Self = @This();
         const zlap_zlap = ZlapZlap(cmd_text, quota){};
 
-        pub fn init(allocator: Allocator) !Self {
+        pub fn init(allocator: Allocator, args: process.Args) !Self {
             var zlap: Self = undefined;
             zlap.allocator = allocator;
             zlap.program_name = zlap_zlap.main.name;
@@ -621,8 +627,8 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
             try zlap.initFields();
 
             // Parsing the command line argument
-            raw_argv = try process.argsAlloc(allocator);
-            errdefer process.argsFree(allocator, raw_argv);
+            raw_argv = try args.toSlice(allocator);
+            errdefer allocator.free(raw_argv);
             try zlap.parseCommandlineArguments();
 
             zlap.help_msg = try zlap.makeHelpMessage();
@@ -660,7 +666,7 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
             self.subcommands.deinit(self.allocator);
             self.freeHelpMessage(self.help_msg);
 
-            process.argsFree(self.allocator, raw_argv);
+            self.allocator.free(raw_argv);
         }
 
         pub fn isSubcmdActive(self: *const Self, name: ?[]const u8) bool {
@@ -697,7 +703,6 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
             );
             self.short_arg_map[@intCast('h')] = "help";
 
-            var short_name_for_hash = [2]u8{ 0, ONLY_SHORT_HASH_SUFFIX };
             for (zlap_zlap.main.flags) |flag_zlap| {
                 var value = try makeValue(self.allocator, flag_zlap);
                 errdefer value.deinit(self.allocator);
@@ -713,7 +718,7 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
 
                 try self.main_flags.put(
                     self.allocator,
-                    makeHashName(flag_zlap.long, &short_name_for_hash, short_name),
+                    flag_zlap.long,
                     .{
                         .long = flag_zlap.long,
                         .short = short_name,
@@ -803,7 +808,7 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
 
                     try flags.put(
                         self.allocator,
-                        makeHashName(flag_zlap.long, &short_name_for_hash, short_name),
+                        flag_zlap.long,
                         .{
                             .long = flag_zlap.long,
                             .short = short_name,

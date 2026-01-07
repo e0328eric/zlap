@@ -1,13 +1,9 @@
 const std = @import("std");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
-    @import("zlap").usage();
-
-    var zlap = try @import("zlap").Zlap(@embedFile("./command.zlap"), null).init(allocator);
+    var zlap = try @import("zlap").Zlap(@embedFile("./command.zlap"), null).init(allocator, init.minimal.args);
     defer zlap.deinit();
 
     if (zlap.is_help) {
@@ -21,10 +17,10 @@ pub fn main() !void {
     }
 
     const subcmd = zlap.subcommands.get("init").?;
-    const foo_flag = subcmd.flags.get("foo") orelse return;
-    const c_flag = subcmd.flags.get("c!") orelse return;
-    const bar_flag = subcmd.flags.get("bar") orelse return;
-    const baz_flag = subcmd.flags.get("baz") orelse return;
+    const foo_flag = subcmd.flags.get("foo") orelse @panic("not found");
+    const c_flag = subcmd.flags.get("c!") orelse @panic("not found");
+    const bar_flag = subcmd.flags.get("bar") orelse @panic("not found");
+    const baz_flag = subcmd.flags.get("baz") orelse @panic("not found");
 
     std.debug.print("|{s}|\n", .{subcmd.args.get("PRINT").?.value.string});
 
