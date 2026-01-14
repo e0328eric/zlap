@@ -168,7 +168,7 @@ fn parseSubcmdMetadata(comptime metadata: []const u8) struct {
 // -no_color,N := @false
 const ArgOrFlag = union(enum(u1)) { arg: ArgZlap, flag: FlagZlap };
 
-fn inferType(val: []const u8) []const u8 {
+fn inferType(comptime val: []const u8) []const u8 {
     if (mem.eql(u8, val, "@true") or mem.eql(u8, val, "@false")) return "bool";
     if (mem.eql(u8, val, "@null")) return "string";
     for (val) |c| if (!ascii.isDigit(c)) return "string";
@@ -225,23 +225,20 @@ fn parseSubcmdPrefix(comptime prefix: []const u8) ArgOrFlag {
         type_str = inferType(val_str);
     } else if (val_str.len > 0) {
         const infered_type = inferType(val_str);
-        if (!mem.eql(u8, type_str, infered_type))
+        if (!mem.eql(u8, type_str, infered_type)) {
             compileError(
                 "`{s}` is the type `{s}, which is not `{s}`. Type mismatched",
                 .{ val_str, infered_type, type_str },
             );
+        }
     }
 
-    // XXX: why inline switch does not compile?
-    switch (arg_or_flag) {
-        .arg => |*tmp| {
-            tmp.type = type_str;
-            tmp.default = val_str;
-        },
-        .flag => |*tmp| {
-            tmp.type = type_str;
-            tmp.default = val_str;
-        },
+    const Tag = @typeInfo(@TypeOf(arg_or_flag)).@"union".tag_type.?;
+    inline for (@typeInfo(Tag).@"enum".fields) |field| {
+        if (field.value == @intFromEnum(arg_or_flag)) {
+            @field(arg_or_flag, field.name).type = type_str;
+            @field(arg_or_flag, field.name).default = val_str;
+        }
     }
 
     return arg_or_flag;
@@ -574,6 +571,7 @@ var raw_argv: []const [:0]const u8 = undefined;
 // if quota == null, then use the default value for @setEvalBranchQuota
 pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
     return struct {
+        arena: std.heap.ArenaAllocator,
         allocator: Allocator,
         program_name: []const u8,
         program_desc: ?[]const u8,
@@ -590,15 +588,19 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
         const Self = @This();
         const zlap_zlap = ZlapZlap(cmd_text, quota){};
 
-        pub fn init(allocator: Allocator, args: process.Args) !Self {
+        pub fn init(gpa: Allocator, args: process.Args) !Self {
             var zlap: Self = undefined;
-            zlap.allocator = allocator;
+            zlap.arena = .init(gpa);
+            zlap.allocator = zlap.arena.allocator();
             zlap.program_name = zlap_zlap.main.name;
             zlap.program_desc = zlap_zlap.main.desc;
             zlap.main_args_idx = 0;
             zlap.short_arg_map = [_]?[]const u8{null} ** 256;
             zlap.active_subcmd = null;
             zlap.is_help = false;
+            errdefer zlap.arena.deinit();
+
+            const allocator = zlap.allocator;
 
             zlap.main_args_raw = try ArrayList(Arg).initCapacity(allocator, ARGUMENTS_CAPACITY);
             errdefer {
@@ -650,28 +652,9 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
         }
 
         pub fn deinit(self: *Self) void {
-            self.main_args.deinit(self.allocator);
-
-            for (self.main_args_raw.items) |*arg| {
-                arg.deinit(self.allocator);
-            }
-
-            var flag_iter = self.main_flags.valueIterator();
-            while (flag_iter.next()) |flag| {
-                flag.deinit(self.allocator);
-            }
-
-            var subcmd_iter = self.subcommands.valueIterator();
-            while (subcmd_iter.next()) |subcmd| {
-                subcmd.deinit(self.allocator);
-            }
-
-            self.main_args_raw.deinit(self.allocator);
-            self.main_flags.deinit(self.allocator);
-            self.subcommands.deinit(self.allocator);
-            self.freeHelpMessage(self.help_msg);
-
-            self.allocator.free(raw_argv);
+            // since we introduce an arena, this is enough to free whole
+            // memories which zlap used.
+            self.arena.deinit();
         }
 
         pub fn isSubcmdActive(self: *const Self, name: ?[]const u8) bool {
