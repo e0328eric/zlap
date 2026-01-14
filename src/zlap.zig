@@ -191,32 +191,32 @@ fn parseSubcmdPrefix(comptime prefix: []const u8) ArgOrFlag {
         "`{s}` must have a name after prefix `*` or `-`",
         .{arg_or_flag_str},
     );
-    var arg_or_flag: ArgOrFlag = undefined;
-    switch (arg_or_flag_str[0]) {
-        '*' => arg_or_flag = .{ .arg = .{ .meta = arg_or_flag_str[1..] } },
-        // flag should have `,` character to separate long and short commands.
-        // spaces after `,` is not allowed. Hence,
-        // `-foo,f` is a valid syntax, but `-foo, f` is not.
-        '-' => {
-            const idx = mem.indexOfScalarPos(u8, arg_or_flag_str, 1, ',') orelse
-                compileError("there is no `,` character in `{s}`", .{arg_or_flag_str});
-            const short = arg_or_flag_str[idx + 1 ..];
-            const long = blk: {
-                const tmp = arg_or_flag_str[1..idx];
-                break :blk if (tmp.len == 0)
-                    fmt.comptimePrint("{s}{c}", .{ short, ONLY_SHORT_HASH_SUFFIX })
-                else
-                    tmp;
-            };
-            // notice that short argument must have a length at most 1
-            if (short.len > 1) compileError("`{s}` cannot be a short flag name", .{short});
-            arg_or_flag = .{ .flag = .{ .long = long, .short = short } };
-        },
-        else => compileError(
-            "`{s}` should start with `*` or `-`, but get `{c}`",
-            .{},
-        ),
-    }
+    var arg_or_flag: ArgOrFlag =
+        switch (arg_or_flag_str[0]) {
+            '*' => .{ .arg = .{ .meta = arg_or_flag_str[1..] } },
+            // flag should have `,` character to separate long and short commands.
+            // spaces after `,` is not allowed. Hence,
+            // `-foo,f` is a valid syntax, but `-foo, f` is not.
+            '-' => blk: {
+                const idx = mem.indexOfScalarPos(u8, arg_or_flag_str, 1, ',') orelse
+                    compileError("there is no `,` character in `{s}`", .{arg_or_flag_str});
+                const short = arg_or_flag_str[idx + 1 ..];
+                const long = blk2: {
+                    const tmp = arg_or_flag_str[1..idx];
+                    break :blk2 if (tmp.len == 0)
+                        fmt.comptimePrint("{s}{c}", .{ short, ONLY_SHORT_HASH_SUFFIX })
+                    else
+                        tmp;
+                };
+                // notice that short argument must have a length at most 1
+                if (short.len > 1) compileError("`{s}` cannot be a short flag name", .{short});
+                break :blk .{ .flag = .{ .long = long, .short = short } };
+            },
+            else => compileError(
+                "`{s}` should start with `*` or `-`, but get `{c}`",
+                .{},
+            ),
+        };
 
     // parsing type_str and val_str
     // TODO: support array for val_str
@@ -232,8 +232,13 @@ fn parseSubcmdPrefix(comptime prefix: []const u8) ArgOrFlag {
             );
     }
 
+    // XXX: why inline switch does not compile?
     switch (arg_or_flag) {
-        inline else => |*tmp| {
+        .arg => |*tmp| {
+            tmp.type = type_str;
+            tmp.default = val_str;
+        },
+        .flag => |*tmp| {
             tmp.type = type_str;
             tmp.default = val_str;
         },
