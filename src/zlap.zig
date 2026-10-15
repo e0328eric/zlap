@@ -235,7 +235,7 @@ fn parseSubcmdPrefix(comptime prefix: []const u8) ArgOrFlag {
 
     const Tag = @typeInfo(@TypeOf(arg_or_flag)).@"union".tag_type.?;
     inline for (@typeInfo(Tag).@"enum".fields) |field| {
-        if (field.value == @intFromEnum(arg_or_flag)) {
+        if (field.value == @backingInt(arg_or_flag)) {
             @field(arg_or_flag, field.name).type = type_str;
             @field(arg_or_flag, field.name).default = val_str;
         }
@@ -595,7 +595,7 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
             zlap.program_name = zlap_zlap.main.name;
             zlap.program_desc = zlap_zlap.main.desc;
             zlap.main_args_idx = 0;
-            zlap.short_arg_map = [_]?[]const u8{null} ** 256;
+            zlap.short_arg_map = @splat(null);
             zlap.active_subcmd = null;
             zlap.is_help = false;
             errdefer zlap.arena.deinit();
@@ -753,7 +753,7 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
                     flags.deinit(self.allocator);
                 }
                 try flags.ensureTotalCapacity(self.allocator, FLAGS_CAPACITY);
-                var short_arg_map = [_]?[]const u8{null} ** 256;
+                var short_arg_map: [256]?[]const u8 = @splat(null);
 
                 for (subcmd_zlap.args) |arg_zlap| {
                     var value = try makeValue(self.allocator, arg_zlap);
@@ -1142,7 +1142,7 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
                 if (flag.short) |short| {
                     try msg.print(self.allocator, "-{c},", .{short});
                 } else {
-                    try msg.print(self.allocator, " " ** 3, .{});
+                    try msg.print(self.allocator, "   ", .{});
                 }
                 if (flag.long) |long| {
                     if (long.len > 0)
