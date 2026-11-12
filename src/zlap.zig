@@ -9,7 +9,7 @@ const process = std.process;
 
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
-const Attributes = std.builtin.Type.StructField.Attributes;
+const Attributes = std.lang.Type.Struct.FieldAttributes;
 const StringHashMap = std.StringHashMapUnmanaged;
 
 const SUBCMD_CAPACITY: usize = 16;
@@ -234,10 +234,11 @@ fn parseSubcmdPrefix(comptime prefix: []const u8) ArgOrFlag {
     }
 
     const Tag = @typeInfo(@TypeOf(arg_or_flag)).@"union".tag_type.?;
-    inline for (@typeInfo(Tag).@"enum".fields) |field| {
-        if (field.value == @backingInt(arg_or_flag)) {
-            @field(arg_or_flag, field.name).type = type_str;
-            @field(arg_or_flag, field.name).default = val_str;
+    const tag_info = @typeInfo(Tag).@"enum";
+    inline for (tag_info.field_names, tag_info.field_values) |field_name, field_value| {
+        if (field_value == @backingInt(arg_or_flag)) {
+            @field(arg_or_flag, field_name).type = type_str;
+            @field(arg_or_flag, field_name).default = val_str;
         }
     }
 
@@ -724,14 +725,14 @@ pub fn Zlap(comptime cmd_text: []const u8, comptime quota: ?u32) type {
                 }
             }
 
-            const zlap_zlap_fields_arr = @typeInfo(@TypeOf(zlap_zlap)).@"struct".fields;
-            inline for (zlap_zlap_fields_arr) |zlap_zlap_field| {
-                if (comptime mem.eql(u8, zlap_zlap_field.name, "main")) continue;
+            const zlap_zlap_field_names = @typeInfo(@TypeOf(zlap_zlap)).@"struct".field_names;
+            inline for (zlap_zlap_field_names) |zlap_zlap_field_name| {
+                if (comptime mem.eql(u8, zlap_zlap_field_name, "main")) continue;
 
-                const subcmd_zlap = @field(zlap_zlap, zlap_zlap_field.name);
+                const subcmd_zlap = @field(zlap_zlap, zlap_zlap_field_name);
                 if (@TypeOf(subcmd_zlap) == []const u8) continue;
 
-                if (self.subcommands.get(zlap_zlap_field.name) != null)
+                if (self.subcommands.get(zlap_zlap_field_name) != null)
                     return error.SubcommandConflicted;
 
                 var args_raw = try ArrayList(Arg).initCapacity(

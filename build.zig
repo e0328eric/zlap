@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const MIN_ZIG_STRING = @import("build.zig.zon").minimal_zig_version;
+const MIN_ZIG_STRING = @import("build.zig.zon").minimum_zig_version;
 const MIN_ZIG = std.SemanticVersion.parse(MIN_ZIG_STRING) catch unreachable;
 
 // NOTE: This code came from
@@ -52,9 +52,7 @@ pub fn build(b: *Build) void {
 
     const example_run = b.addRunArtifact(example_exe);
     example_run.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        example_run.addArgs(args);
-    }
+    example_run.addPassthruArgs();
 
     const example_run_step = b.step("run-example", "Run the example");
     example_run_step.dependOn(&example_run.step);
